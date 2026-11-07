@@ -8,7 +8,13 @@ from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 
 from cosmetics_bot.src.telegram.bot import dp
-import msvcrt
+import platform
+
+if platform.system() == "Windows":
+    import msvcrt
+else:
+    # Альтернатива для Linux или заглушка
+    msvcrt = None
 import sys
 
 import tempfile

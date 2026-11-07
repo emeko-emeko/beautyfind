@@ -1,20 +1,10 @@
-# Используем официальный легковесный образ Node.js
-FROM node:18-alpine
+FROM python:3.10-slim
 
-# Устанавливаем рабочую директорию внутри контейнера
 WORKDIR /app
 
-# Копируем файлы с описанием зависимостей
-COPY package*.json ./
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Устанавливаем зависимости
-RUN npm install
-
-# Копируем все остальные файлы проекта в контейнер
 COPY . .
 
-# Указываем порт, который слушает приложение (например, 3000)
-EXPOSE 3000
-
-# Команда для запуска приложения по умолчанию
-CMD ["npm", "start"]
+CMD ["python", "main.py"]
