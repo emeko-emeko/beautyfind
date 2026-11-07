@@ -1,0 +1,11 @@
+services:
+  - type: worker
+    name: telegram-bot
+    env: python
+    region: frankfurt
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    envVars:
+      - key: 8729769091:AAFuQ-B__1p26Pl6eX15_lBQSqd7g6TWGJ8
+        sync: false
