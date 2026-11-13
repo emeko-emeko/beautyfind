@@ -13,18 +13,20 @@ import platform
 if platform.system() == "Windows":
     import msvcrt
 else:
-    # Альтернатива для Linux или заглушка
+    # msvcrt есть только в Windows; на Linux (Railway, Docker) блокировку не делаем
     msvcrt = None
 import sys
 
 import tempfile
 
-LOCK_PATH = os.path.join(tempfile.gettempdir(), "cosmetics_bot.lock")
-_lock_file = open(LOCK_PATH, "w")
-try:
-    msvcrt.locking(_lock_file.fileno(), msvcrt.LK_NBLCK, 1)
-except OSError:
-    sys.exit("Бот уже запущен: второй экземпляр не стартует")
+# Защита от второго экземпляра работает только в Windows (см. JOURNAL.md, запись 001)
+if msvcrt is not None:
+    LOCK_PATH = os.path.join(tempfile.gettempdir(), "cosmetics_bot.lock")
+    _lock_file = open(LOCK_PATH, "w")
+    try:
+        msvcrt.locking(_lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+    except OSError:
+        sys.exit("Бот уже запущен: второй экземпляр не стартует")
 
 
 

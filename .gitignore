@@ -1,0 +1,11 @@
+# Кэш Python
+__pycache__/
+*.pyc
+
+# Секреты: токены и строки подключения никогда не коммитятся
+.env
+.env.*
+!.env.example
+
+# Локальные данные SQLite (база теперь в Supabase)
+cosmetics_bot/data/*.db
