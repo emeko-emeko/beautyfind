@@ -32,6 +32,10 @@ class Store:
     # Старая цена лежит внутри элемента цены: брать только собственный текст, иначе склеятся обе
     price_own_text: bool = False
     currency: str = "₸"
+    # Валюта цены на сайте. Если не ₸, цена пересчитывается в ₸ по fx_to_kzt,
+    # а в сообщении рядом пишется исходная цена.
+    price_currency: str = "₸"
+    fx_to_kzt: float = 1.0
 
 
 @dataclass
@@ -49,6 +53,7 @@ class Candidate:
     price_prefix: str
     pos: int
     ratio: float = 0.0
+    list_price_native: Optional[float] = None  # цена в валюте магазина
     hay: Tuple = field(default_factory=tuple, repr=False)
 
     @property
@@ -84,6 +89,8 @@ class Candidate:
             "volume": None,
             "unit": "",
             "price": None,
+            "price_native": None,
+            "native_currency": self.store.price_currency,
             "old_price": None,
             "loyalty_price": None,
         }

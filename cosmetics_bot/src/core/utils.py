@@ -16,6 +16,9 @@ MAX_VOLUME_ONLY = True
 SESSION_TTL = 3600         # сколько секунд живут кнопки выбора
 RATING_PRIOR = 4.0         # средний рейтинг для сглаживания
 RATING_WEIGHT = 50         # "вес" среднего рейтинга (в количестве отзывов)
+# Курс евро к тенге для магазинов в евро (Cult Beauty). Обновлять вручную.
+# Значение: курс НБ РК на 7.10.2026 (Informburo). Источники расходятся, проверьте актуальный.
+EUR_TO_KZT = 509.99
 
 # Synonyms and dictionary mappings
 SYNONYMS: List[List[str]] = [

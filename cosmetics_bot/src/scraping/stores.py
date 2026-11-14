@@ -4,6 +4,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from playwright.async_api import async_playwright
 from cosmetics_bot.src.core.models import Store
+from cosmetics_bot.src.core.utils import EUR_TO_KZT
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -77,6 +78,67 @@ STORES = [
         link="a[href^='/product/']",
         detail="yvesrocher",
         detail_ready="[class*='ProductCardSidebar_priceDisplay']",
+    ),
+]
+
+
+# Магазины, которые ещё не подключены к боту: не хватает адреса поиска.
+# Чтобы подключить, заполните search_url и перенесите запись в STORES.
+PENDING_STORES = [
+    Store(
+        name="Код де ви",
+        base_url="https://cdv.kz",
+        search_url="",  # TODO: адрес поиска
+        # Классы с хешами (например _6hPivq_), поэтому ищем по части имени.
+        card="div:has(> a[href^='/item/'])",
+        brand="[class*='_brand']",
+        name_sel="[class*='_title'] p",
+        price="[class*='_currentPriceText']",
+        images=["img"],
+        link="a[href^='/item/']",
+        detail="",
+        detail_ready="",
+    ),
+    Store(
+        name="Viled",
+        base_url="https://viled.kz",
+        search_url="",  # TODO: адрес поиска
+        card="div:has(> a[href^='/item/'])",
+        brand="[class*='_brand']",
+        name_sel="[class*='_title'] p",
+        price="[class*='_currentPriceText']",
+        images=["img"],
+        link="a[href^='/item/']",
+        detail="",
+        detail_ready="",
+    ),
+    Store(
+        name="Space NK",
+        base_url="https://www.spacenk.com",
+        search_url="",  # TODO: адрес поиска
+        card=".product-tile",
+        brand="h5.mb-1",
+        name_sel=".pdp-link a",
+        price=".price .value",
+        images=["img.tile-image"],
+        link="a.link[href]",
+        detail="",
+        detail_ready="",
+    ),
+    Store(
+        name="Cult Beauty",
+        base_url="https://www.cultbeauty.com",
+        search_url="",  # TODO: адрес поиска
+        card="product-card-wrapper",
+        brand="",
+        name_sel="a.product-item-title",
+        price="p.price",
+        images=["img.item-image"],
+        link="a.product-item[href]",
+        detail="",
+        detail_ready="",
+        price_currency="€",
+        fx_to_kzt=EUR_TO_KZT,
     ),
 ]
 

@@ -1,6 +1,8 @@
 """UI formatting and message rendering helpers."""
 
 import html
+from typing import Optional
+
 from cosmetics_bot.src.core.models import Candidate, Group
 from cosmetics_bot.src.core.utils import format_money, norm
 
@@ -12,6 +14,16 @@ def rating_line(rating: float | None, reviews: int) -> str:
     if reviews:
         s += f" ({reviews:,} отз.)".replace(",", " ")
     return s
+
+
+def price_text(kzt: Optional[int], native: Optional[float], native_cur: str, currency: str = "₸") -> str:
+    """Цена в тенге. Если магазин продаёт в другой валюте, рядом в скобках исходная цена."""
+    if kzt is None:
+        return ""
+    text = format_money(kzt, currency)
+    if native is not None and native_cur and native_cur != currency:
+        text += f" (≈ {native:g} {native_cur})"
+    return text
 
 
 def unavailable_line(names: list[str]) -> str:
@@ -32,7 +44,7 @@ def build_caption(p: dict, confident: bool = True) -> str:
     if p.get("volume"):
         lines.append(f"📏 <b>Объём:</b> {p['volume']:g} {html.escape(p.get('unit') or 'мл')}")
 
-    price = (p.get("price_prefix") or "") + format_money(p["price"], cur)
+    price = (p.get("price_prefix") or "") + price_text(p["price"], p.get("price_native"), p.get("native_currency") or "", cur)
     old = f" (<s>{format_money(p['old_price'], cur)}</s>)" if p.get("old_price") else ""
     lines.append(f"💰 <b>Цена:</b> {price}{old}")
 
@@ -69,7 +81,8 @@ def render_group(i: int, g: Group) -> tuple[str, str]:
         lines.append(r)
     prices = [m.list_price for m in g.members if m.list_price]
     if prices:
-        lines.append(f"💰 от {format_money(min(prices), rep.store.currency)}")
+        cheapest = min((m for m in g.members if m.list_price), key=lambda m: m.list_price)
+        lines.append(f"💰 от {price_text(cheapest.list_price, cheapest.list_price_native, rep.store.price_currency, rep.store.currency)}")
     if len(g.members) > 1:
         lines.append(f"🔀 Вариантов (оттенок/объём): {len(g.members)}")
     return "\n".join(lines), rep.image
@@ -85,5 +98,5 @@ def render_member(i: int, c: Candidate) -> tuple[str, str]:
     if r:
         lines.append(r)
     if c.list_price:
-        lines.append(f"💰 от {format_money(c.list_price, c.store.currency)}")
+        lines.append(f"💰 от {price_text(c.list_price, c.list_price_native, c.store.price_currency, c.store.currency)}")
     return "\n".join(lines), c.image

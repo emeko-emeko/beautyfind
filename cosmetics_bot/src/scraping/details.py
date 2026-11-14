@@ -214,6 +214,12 @@ async def fetch_detail(browser: Browser, cand: Candidate, want_volume: float | N
     store = cand.store
     result = cand.to_result()
 
+    if not store.detail:
+        # Страница товара не разбирается: берём цену из выдачи
+        result["price"] = cand.list_price
+        result["price_native"] = cand.list_price_native
+        return result if result["price"] is not None else None
+
     # Цена зависит от объёма: ключ кэша включает введённый объём или режим выбора без него.
     if want_volume is not None:
         mode = f"v{want_volume:g}"
@@ -250,5 +256,6 @@ async def fetch_detail(browser: Browser, cand: Candidate, want_volume: float | N
         cache_set(cache_key, detail)
     else:
         result["price"] = cand.list_price
+        result["price_native"] = cand.list_price_native
         result["price_prefix"] = cand.price_prefix
     return result if result["price"] is not None else None

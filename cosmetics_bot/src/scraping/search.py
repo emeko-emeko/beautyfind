@@ -187,6 +187,14 @@ def _build_candidate(store: Store, raw: dict, groups, pos: int) -> Candidate:
     label = raw["label"]
     price_raw = raw["price"] or ""
 
+    native = None
+    if store.price_currency != "₸":
+        # Цена в валюте магазина (например, 111.00€): переводим в тенге
+        native = to_float(price_raw)
+        list_price = round(native * store.fx_to_kzt) if native is not None else None
+    else:
+        list_price = digits_int(price_raw)
+
     cand = Candidate(
         store=store,
         brand=brand,
@@ -197,9 +205,10 @@ def _build_candidate(store: Store, raw: dict, groups, pos: int) -> Candidate:
         image=raw["image"],
         rating=to_float(raw["rating"]),
         reviews=int(to_float(raw["reviews"]) or 0),
-        list_price=digits_int(price_raw),
+        list_price=list_price,
         price_prefix="от " if price_raw.lower().startswith("от") else "",
         pos=pos,
+        list_price_native=native,
     )
     cand.hay = make_hay(f"{brand} {cand.full_title} {type_} {label}", brand)
     cand.ratio = relevance(groups, cand.hay)
