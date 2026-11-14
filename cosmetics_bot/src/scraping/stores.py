@@ -90,8 +90,8 @@ STORES = [
         price="[class*='_currentPriceText']",
         images=["img"],
         link="a[href^='/item/']",
-        detail="",
-        detail_ready="",
+        detail="kodedevie",
+        detail_ready="[class*='_price'] [class*='_current']",
     ),
     Store(
         name="Viled",
@@ -103,8 +103,8 @@ STORES = [
         price="[class*='_currentPriceText']",
         images=["img"],
         link="a[href^='/item/']",
-        detail="",
-        detail_ready="",
+        detail="viled",
+        detail_ready="[class*='_price'] [class*='_current']",
     ),
     Store(
         name="Cult Beauty",

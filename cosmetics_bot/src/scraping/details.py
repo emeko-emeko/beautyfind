@@ -232,6 +232,79 @@ async def detail_spacenk(page, want_volume: float | None) -> dict | None:
     }
 
 
+async def detail_kodedevie(page, want_volume: float | None) -> dict | None:
+    # Классы с хешами (PA3B1q_current, _6QkyVq_price), поэтому ищем по части имени.
+    # Цена со скидкой в «_current», без скидки в «_old». Объёма в карточке нет.
+    price = digits_int(await text_of(page, "[class*='_price'] [class*='_current']"))
+    if price is None:
+        return None
+    old = digits_int(await text_of(page, "[class*='_price'] [class*='_old']"))
+    if old is not None and old <= price:
+        old = None
+    return {
+        "volume": None,
+        "unit": "",
+        "price": price,
+        "old_price": old,
+        "loyalty_price": None,
+    }
+
+
+async def detail_viled(page, want_volume: float | None) -> dict | None:
+    # Варианты объёма: кнопки «30 мл», «50 мл» в .swiper-wrapper. Активная с классом «_active».
+    # Цена в «_current» относится к активному варианту. Смена варианта не проверена на живом сайте.
+    price_sel = "[class*='_price'] [class*='_current']"
+    buttons = page.locator(".swiper-wrapper button")
+    variants = []  # (volume, index)
+    current = None
+    for i in range(await buttons.count()):
+        b = buttons.nth(i)
+        m = VOLUME_RE.search((await b.text_content()) or "")
+        if not m:
+            continue
+        v = (float(m.group(1).replace(",", ".")), i)
+        variants.append(v)
+        if "_active" in (await b.get_attribute("class") or ""):
+            current = v
+
+    if variants:
+        _, idx = choose_variant(variants, want_volume, current)
+        if current is None or idx != current[1]:
+            before = await text_of(page, price_sel)
+            try:
+                await buttons.nth(idx).click(timeout=5000)
+            except Exception:
+                pass
+            for _ in range(15):
+                await page.wait_for_timeout(300)
+                if await text_of(page, price_sel) != before:
+                    break
+
+    # Объём берём из реально активной кнопки: если клик не сработал, цена относится к прежнему варианту.
+    chosen_volume = None
+    for i in range(await buttons.count()):
+        b = buttons.nth(i)
+        if "_active" in (await b.get_attribute("class") or ""):
+            m = VOLUME_RE.search((await b.text_content()) or "")
+            if m:
+                chosen_volume = float(m.group(1).replace(",", "."))
+            break
+
+    price = digits_int(await text_of(page, price_sel))
+    if price is None:
+        return None
+    old = digits_int(await text_of(page, "[class*='_price'] [class*='_old']"))
+    if old is not None and old <= price:
+        old = None
+    return {
+        "volume": chosen_volume,
+        "unit": "мл" if chosen_volume is not None else "",
+        "price": price,
+        "old_price": old,
+        "loyalty_price": None,
+    }
+
+
 DETAIL_HANDLERS = {
     "spacenk": detail_spacenk,
     "cultbeauty": detail_cultbeauty,
@@ -239,6 +312,8 @@ DETAIL_HANDLERS = {
     "goldapple": detail_goldapple,
     "frenchhouse": detail_frenchhouse,
     "yvesrocher": detail_yvesrocher,
+    "kodedevie": detail_kodedevie,
+    "viled": detail_viled,
 }
 
 
