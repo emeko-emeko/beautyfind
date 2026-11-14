@@ -124,6 +124,7 @@ PENDING_STORES = [
         link="a.link[href]",
         detail="",
         detail_ready="",
+        restricted_sel="h5.unavailable-notice",
     ),
     Store(
         name="Cult Beauty",

@@ -31,6 +31,8 @@ class Store:
     show_type: bool = False
     # Старая цена лежит внутри элемента цены: брать только собственный текст, иначе склеятся обе
     price_own_text: bool = False
+    # Плашка «доставка в КЗ невозможна» в карточке (отмечаем товар, не скрываем)
+    restricted_sel: Optional[str] = None
     currency: str = "₸"
     # Валюта цены на сайте. Если не ₸, цена пересчитывается в ₸ по fx_to_kzt,
     # а в сообщении рядом пишется исходная цена.
@@ -54,6 +56,7 @@ class Candidate:
     pos: int
     ratio: float = 0.0
     list_price_native: Optional[float] = None  # цена в валюте магазина
+    restricted: bool = False                   # доставка в КЗ невозможна
     hay: Tuple = field(default_factory=tuple, repr=False)
 
     @property
@@ -90,6 +93,7 @@ class Candidate:
             "unit": "",
             "price": None,
             "price_native": None,
+            "restricted": self.restricted,
             "native_currency": self.store.price_currency,
             "old_price": None,
             "loyalty_price": None,

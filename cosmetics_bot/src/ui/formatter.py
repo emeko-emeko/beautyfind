@@ -65,6 +65,9 @@ def build_caption(p: dict, confident: bool = True) -> str:
         lines.append(f"\n/watch — отслеживать цену")
         lines.append(f"/fav — добавить в избранное")
 
+    if p.get("restricted"):
+        lines.append("🚫 Доставка в Казахстан невозможна")
+
     if not confident:
         lines.append("\n⚠️ Точного совпадения не нашлось, возможно, это не тот товар.")
     return "\n".join(lines)
@@ -99,4 +102,6 @@ def render_member(i: int, c: Candidate) -> tuple[str, str]:
         lines.append(r)
     if c.list_price:
         lines.append(f"💰 от {price_text(c.list_price, c.list_price_native, c.store.price_currency, c.store.currency)}")
+    if c.restricted:
+        lines.append("🚫 Доставка в Казахстан невозможна")
     return "\n".join(lines), c.image

@@ -125,6 +125,53 @@ class NewStoresParsingTests(unittest.TestCase):
         self.assertEqual(items[0]["price"], "111.00€")
 
 
+RESTRICTED_HTML = """
+<div class="product"><div class="product-tile">
+  <div class="image-container"><a class="link" href="/uk/brands/y/ysl-beauty/make-me-blush-MUK200067597.html">
+    <img class="tile-image" alt="Make Me Blush Powder Set" src="https://www.spacenk.com/img.jpg"></a></div>
+  <div class="tile-body unavailable">
+    <h5 class="mb-1">YSL BEAUTY</h5>
+    <div class="pdp-link mb-1"><a class="link" href="/uk/brands/y/ysl-beauty/make-me-blush-MUK200067597.html">Make Me Blush Powder Set</a></div>
+    <h5><div class="price"><span class="sales"><span class="value">KZT 35,050</span></span></div></h5>
+    <div class="col-12 pl-0"><h5 class="unavailable-notice">Unable to ship to Kazakhstan.</h5></div>
+  </div>
+</div></div>
+"""
+
+PLAIN_HTML = """
+<div class="product"><div class="product-tile">
+  <div class="image-container"><a class="link" href="/uk/accessories/bag-MUK200065905.html">
+    <img class="tile-image" alt="Bag" src="https://www.spacenk.com/bag.jpg"></a></div>
+  <div class="tile-body">
+    <h5 class="mb-1">Space NK</h5>
+    <div class="pdp-link mb-1"><a class="link" href="/uk/accessories/bag-MUK200065905.html">Mini Travel Bag Pink</a></div>
+    <h5><div class="price"><span class="sales"><span class="value">KZT 8,900</span></span></div></h5>
+  </div>
+</div></div>
+"""
+
+
+class DeliveryRestrictionTests(unittest.TestCase):
+    def test_restricted_card_is_flagged(self):
+        items = _extract(RESTRICTED_HTML, _store("Space NK"))
+        self.assertTrue(items[0]["restricted"])
+
+    def test_normal_card_is_not_flagged(self):
+        items = _extract(PLAIN_HTML, _store("Space NK"))
+        self.assertFalse(items[0]["restricted"])
+
+    def test_restricted_note_in_caption(self):
+        from cosmetics_bot.src.ui.formatter import build_caption
+        base = {
+            "store": "Space NK", "title": "YSL BEAUTY Make Me Blush", "subtitle": "",
+            "rating": None, "reviews": 0, "volume": None, "unit": "", "currency": "₸",
+            "price": 35050, "old_price": None, "loyalty_price": None,
+            "price_prefix": "", "product_url": "https://www.spacenk.com/x", "price_native": None,
+        }
+        self.assertIn("Доставка в Казахстан невозможна", build_caption({**base, "restricted": True}))
+        self.assertNotIn("Доставка в Казахстан невозможна", build_caption({**base, "restricted": False}))
+
+
 class CurrencyTests(unittest.TestCase):
     def test_eur_converted_to_tenge_and_native_kept(self):
         store = _store("Cult Beauty")

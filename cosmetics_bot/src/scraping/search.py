@@ -87,6 +87,7 @@ EXTRACT_JS = """
       rating: att(card, sel.rating_sel, "content"),
       reviews: att(card, sel.reviews_sel, "content"),
       price: sel.price_own_text ? ownText(card, sel.price) : txt(card, sel.price),
+      restricted: !!q(card, sel.restricted_sel),
     });
   }
   return out;
@@ -96,6 +97,7 @@ EXTRACT_JS = """
 SEL_FIELDS = (
     "link", "name_sel", "name_from_attr", "brand", "type_sel",
     "label_sel", "rating_sel", "reviews_sel", "price", "price_own_text", "images",
+    "restricted_sel",
 )
 
 
@@ -209,6 +211,7 @@ def _build_candidate(store: Store, raw: dict, groups, pos: int) -> Candidate:
         price_prefix="от " if price_raw.lower().startswith("от") else "",
         pos=pos,
         list_price_native=native,
+        restricted=bool(raw.get("restricted")),
     )
     cand.hay = make_hay(f"{brand} {cand.full_title} {type_} {label}", brand)
     cand.ratio = relevance(groups, cand.hay)
