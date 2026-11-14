@@ -15,6 +15,7 @@ from cosmetics_bot.src.core.utils import (
 from cosmetics_bot.src.scraping.stores import USER_AGENT
 from cosmetics_bot.src.scraping.search import _block_heavy
 from cosmetics_bot.src.core.db import cache_get, cache_set
+from cosmetics_bot.src.core.utils import EUR_TO_KZT
 
 
 async def text_of(root, selector: str | None) -> str:
@@ -202,7 +203,23 @@ async def detail_yvesrocher(page, want_volume: float | None) -> dict | None:
     }
 
 
+async def detail_cultbeauty(page, want_volume: float | None) -> dict | None:
+    # Цена в евро: «26.45€» в блоке #product-price. Объёма в разметке нет.
+    native = to_float(await text_of(page, "#product-price p span"))
+    if native is None:
+        return None
+    return {
+        "volume": None,
+        "unit": "",
+        "price": round(native * EUR_TO_KZT),
+        "price_native": native,
+        "old_price": None,
+        "loyalty_price": None,
+    }
+
+
 DETAIL_HANDLERS = {
+    "cultbeauty": detail_cultbeauty,
     "monamie": detail_monamie,
     "goldapple": detail_goldapple,
     "frenchhouse": detail_frenchhouse,

@@ -87,6 +87,39 @@ def _extract(html, store):
     return asyncio.run(run())
 
 
+CULT_PRODUCT_HTML = """
+<html><body><main>
+<div id="product-price" class="container">
+  <p class="text-2xl font-medium">
+        <span>
+          26.45€
+        </span>
+      </p>
+</div>
+</main></body></html>
+"""
+
+
+class CultBeautyDetailTests(unittest.TestCase):
+    def test_product_price_converted_to_tenge(self):
+        from cosmetics_bot.src.scraping.details import DETAIL_HANDLERS, detail_cultbeauty
+        self.assertIs(DETAIL_HANDLERS["cultbeauty"], detail_cultbeauty)
+
+        async def run():
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch(headless=True)
+                try:
+                    page = await browser.new_page()
+                    await page.set_content(CULT_PRODUCT_HTML)
+                    return await detail_cultbeauty(page, None)
+                finally:
+                    await browser.close()
+
+        detail = asyncio.run(run())
+        self.assertEqual(detail["price_native"], 26.45)
+        self.assertEqual(detail["price"], round(26.45 * EUR_TO_KZT))
+
+
 class NewStoresParsingTests(unittest.TestCase):
     def test_all_four_defined(self):
         names = {s.name for s in STORES + PENDING_STORES}
