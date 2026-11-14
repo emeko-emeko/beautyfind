@@ -37,13 +37,12 @@ class HandleSearchUnavailableTests(unittest.TestCase):
     def test_all_stores_unavailable_says_not_answered(self):
         names = [s.name for s in STORES]
         sent = self.run_search("крем", ([], names))
-        self.assertEqual(sent[0], unavailable_line(names))
-        self.assertEqual(sent[-1], "⚠️ Магазины не ответили, попробуйте позже.")
+        self.assertEqual(sent, ["⚠️ Магазины не ответили, попробуйте позже."])
         self.assertNotIn("ничего не нашлось", " ".join(sent))
 
-    def test_one_store_unavailable_shows_notice_and_not_found(self):
+    def test_one_store_unavailable_shows_no_notice(self):
         sent = self.run_search("крем", ([], ["Mon Amie"]))
-        self.assertEqual(sent[0], "⚠️ Mon Amie: недоступен")
+        self.assertFalse(any("недоступен" in m for m in sent))
         self.assertIn("ничего не нашлось", sent[-1])
 
     def test_no_unavailable_keeps_old_message(self):

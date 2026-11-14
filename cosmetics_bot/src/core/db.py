@@ -55,6 +55,10 @@ def init_db() -> None:
         for col, typ in (("old_price", "INTEGER"), ("loyalty_price", "INTEGER"), ("volume", "REAL")):
             if col not in cols:
                 conn.execute(f"ALTER TABLE favorites ADD COLUMN {col} {typ}")
+        # Миграция: объём отслеживаемого товара нужен для повторной проверки цены
+        wcols = {r["name"] for r in conn.execute("PRAGMA table_info(watches)")}
+        if "volume" not in wcols:
+            conn.execute("ALTER TABLE watches ADD COLUMN volume REAL")
         conn.commit()
 
 
@@ -99,17 +103,27 @@ def cache_set(url: str, data: Dict[str, Any]) -> None:
         conn.commit()
 
 
-def add_watch(chat_id: int, product_url: str, title: str, initial_price: int) -> None:
-    import time
+def add_watch(chat_id: int, product_url: str, title: str, initial_price: int,
+              volume: Optional[float] = None) -> None:
+    now = time.time()
     with get_connection() as conn:
+        # Один товар на чат: повторная подписка заменяет старую
+        conn.execute("DELETE FROM watches WHERE chat_id = ? AND product_url = ?", (chat_id, product_url))
         conn.execute(
             """
-            INSERT OR REPLACE INTO watches (chat_id, product_url, title, initial_price, last_price, created_at, last_check)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO watches (chat_id, product_url, title, initial_price, last_price, created_at, last_check, volume)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (chat_id, product_url, title, initial_price, initial_price, time.time(), time.time())
+            (chat_id, product_url, title, initial_price, initial_price, now, now, volume)
         )
         conn.commit()
+
+
+def remove_watch(watch_id: int, chat_id: int) -> bool:
+    with get_connection() as conn:
+        cur = conn.execute("DELETE FROM watches WHERE id = ? AND chat_id = ?", (watch_id, chat_id))
+        conn.commit()
+        return cur.rowcount > 0
 
 
 def get_watch_by_id(watch_id: int) -> Optional[Dict]:

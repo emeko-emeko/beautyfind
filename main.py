@@ -8,6 +8,7 @@ from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 
 from cosmetics_bot.src.telegram.bot import dp
+from cosmetics_bot.src.telegram.watcher import watch_loop
 import platform
 
 if platform.system() == "Windows":
@@ -43,6 +44,7 @@ async def main():
 
     bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
     logging.info("Telegram-бот запущен и готов к работе...")
+    asyncio.create_task(watch_loop(bot))
     await dp.start_polling(bot)
 
 

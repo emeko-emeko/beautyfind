@@ -22,11 +22,12 @@ from cosmetics_bot.src.core.utils import (
 from cosmetics_bot.src.scraping.stores import STORES, browser_ctx
 from cosmetics_bot.src.scraping.search import collect_all
 from cosmetics_bot.src.scraping.details import fetch_detail
-from cosmetics_bot.src.ui.formatter import build_caption, render_group, render_member, unavailable_line
+from cosmetics_bot.src.ui.formatter import build_caption, render_group, render_member
+from cosmetics_bot.src.telegram.watcher import is_watch_supported
 from cosmetics_bot.src.telegram.sessions import SESSIONS, LAST_TOKEN, new_session
 from cosmetics_bot.src.core.db import (
     init_db, add_watch, add_favorite, get_favorites, get_favorite,
-    delete_favorite, update_favorite_prices,
+    delete_favorite, update_favorite_prices, get_watches, remove_watch,
 )
 
 init_db()
@@ -107,7 +108,8 @@ def product_keyboard(chat_id: int, product: dict):
     # callback_data не должна превышать 64 байта, поэтому кладём товар в сессию по короткому токену
     prod_token = new_session(chat_id, 3600, product=product)
     kb = InlineKeyboardBuilder()
-    kb.button(text="🔔 Отслеживать цену", callback_data=f"watch:{prod_token}")
+    if is_watch_supported(product.get("store", "")):
+        kb.button(text="🔔 Отслеживать цену", callback_data=f"watch:{prod_token}")
     kb.button(text="⭐ Добавить в избранное", callback_data=f"fav:{prod_token}")
     kb.adjust(1)
     return kb.as_markup()
@@ -283,7 +285,7 @@ async def cmd_help(message: Message):
         "• Нажмите ✅ Выбрать под товаром, чтобы получить цену.\n"
         "• Под карточкой товара есть кнопки \"🔔 Отслеживать цену\" и \"⭐ Добавить в избранное\".\n"
         "• /fav — просмотреть избранное.\n"
-        "• /watch (пока только кнопка) — подписаться на отслеживание цены."
+        "• /watch — список отслеживаемых товаров и отмена подписки."
     )
 
 
@@ -309,8 +311,12 @@ async def on_watch(cb: CallbackQuery):
         await cb.answer("Информация о товаре устарела.", show_alert=True)
         return
     prod = s["product"]
-    add_watch(cb.message.chat.id, prod["product_url"], prod["title"], prod["price"])
-    await cb.answer("Подписка на цену оформлена!", show_alert=False)
+    if not is_watch_supported(prod.get("store", "")):
+        await cb.answer("Для этого магазина отслеживание цены пока недоступно.", show_alert=True)
+        return
+    add_watch(cb.message.chat.id, prod["product_url"], prod["title"], prod["price"],
+              volume=prod.get("volume"))
+    await cb.answer("Подписка на цену оформлена! Сообщу, когда цена изменится.", show_alert=False)
 
 
 @dp.callback_query(F.data.startswith("pick:"))
@@ -364,7 +370,33 @@ async def on_pick(cb: CallbackQuery):
 
 @dp.message(Command("watch"))
 async def cmd_watch(message: Message):
-    await message.answer("Для подписки на цену используйте кнопку «Отслеживать» под карточкой товара.")
+    items = get_watches(message.chat.id)
+    if not items:
+        await message.answer(
+            "Вы пока ничего не отслеживаете. Нажмите «🔔 Отслеживать цену» под карточкой товара."
+        )
+        return
+    await message.answer(f"🔔 <b>Отслеживаемые товары: {len(items)}</b>")
+    for w in items:
+        kb = InlineKeyboardBuilder()
+        kb.button(text="❌ Отменить", callback_data=f"wdel:{w['id']}")
+        await message.answer(
+            f"<b>{html.escape(w['title'])}</b>\n"
+            f"Последняя цена: {format_money(w['last_price'])}\n"
+            f"<a href='{html.escape(w['product_url'], quote=True)}'>Смотреть на сайте</a>",
+            reply_markup=kb.as_markup(),
+        )
+
+
+@dp.callback_query(F.data.startswith("wdel:"))
+async def on_watch_delete(cb: CallbackQuery):
+    watch_id = int(cb.data.split(":", 1)[1])
+    ok = remove_watch(watch_id, cb.message.chat.id)
+    await cb.answer("Отслеживание отменено" if ok else "Уже отменено", show_alert=False)
+    try:
+        await cb.message.edit_text("❌ Отслеживание отменено")
+    except Exception:
+        pass
 
 
 @dp.message(F.text)
@@ -403,9 +435,6 @@ async def handle_search(message: Message):
             await status.delete()
         except Exception:
             pass
-
-        if unavailable:
-            await message.answer(unavailable_line(unavailable))
 
         if not plan:
             if len(unavailable) == len(STORES):
