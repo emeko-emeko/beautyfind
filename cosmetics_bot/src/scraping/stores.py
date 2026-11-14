@@ -121,16 +121,10 @@ STORES = [
         price_currency="€",
         fx_to_kzt=EUR_TO_KZT,
     ),
-]
-
-
-# Магазины, которые ещё не подключены к боту: не хватает адреса поиска.
-# Чтобы подключить, заполните search_url и перенесите запись в STORES.
-PENDING_STORES = [
     Store(
         name="Space NK",
         base_url="https://www.spacenk.com",
-        search_url="",  # TODO: адрес поиска
+        search_url="https://www.spacenk.com/uk/search?q={query}&search-button=&lang=en_GB",
         card=".product-tile",
         brand="h5.mb-1",
         name_sel=".pdp-link a",
@@ -141,6 +135,12 @@ PENDING_STORES = [
         detail_ready="",
         restricted_sel="h5.unavailable-notice",
     ),
+]
+
+
+# Магазины, которые ещё не подключены к боту: не хватает адреса поиска.
+# Чтобы подключить, заполните search_url и перенесите запись в STORES.
+PENDING_STORES = [
 ]
 
 
