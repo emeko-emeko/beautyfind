@@ -1,5 +1,7 @@
 # gstack и его сгенерированные скиллы весят ~1.3 ГБ: ставятся скриптом .claude/install-gstack.sh
 *
 !.gitignore
-!uipro-*/
-!design-taste-frontend/
+!uipro-*
+!uipro-*/**
+!design-taste-frontend
+!design-taste-frontend/**
