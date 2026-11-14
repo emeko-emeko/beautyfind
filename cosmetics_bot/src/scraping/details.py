@@ -218,7 +218,22 @@ async def detail_cultbeauty(page, want_volume: float | None) -> dict | None:
     }
 
 
+async def detail_spacenk(page, want_volume: float | None) -> dict | None:
+    # Цена в тенге: «KZT 7,800» в блоке .product-detail__prices. Объёма в разметке нет.
+    price = digits_int(await text_of(page, ".product-detail__prices .price .value"))
+    if price is None:
+        return None
+    return {
+        "volume": None,
+        "unit": "",
+        "price": price,
+        "old_price": None,
+        "loyalty_price": None,
+    }
+
+
 DETAIL_HANDLERS = {
+    "spacenk": detail_spacenk,
     "cultbeauty": detail_cultbeauty,
     "monamie": detail_monamie,
     "goldapple": detail_goldapple,

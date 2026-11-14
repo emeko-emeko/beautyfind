@@ -53,7 +53,8 @@ class SupportTests(unittest.TestCase):
         self.assertTrue(watcher.is_watch_supported("Mon Amie"))
         self.assertTrue(watcher.is_watch_supported("Yves Rocher"))
         self.assertTrue(watcher.is_watch_supported("Cult Beauty"))
-        self.assertFalse(watcher.is_watch_supported("Space NK"))
+        self.assertTrue(watcher.is_watch_supported("Space NK"))
+        self.assertFalse(watcher.is_watch_supported("Viled"))
         self.assertFalse(watcher.is_watch_supported("Код де ви"))
         self.assertFalse(watcher.is_watch_supported("Unknown"))
 
@@ -100,9 +101,9 @@ class CheckWatchesTests(unittest.TestCase):
         self.assertEqual(saved, [(1, 10000)])
 
     def test_store_without_detail_handler_is_skipped_without_fetch(self):
-        watches = [{"id": 1, "chat_id": 7, "product_url": "https://www.spacenk.com/uk/p/x.html", "title": "X",
+        watches = [{"id": 1, "chat_id": 7, "product_url": "https://viled.kz/item/1", "title": "X",
                     "last_price": 5000, "volume": None}]
-        bot, saved = self._run(watches, {"https://www.spacenk.com/uk/p/x.html": 1})
+        bot, saved = self._run(watches, {"https://viled.kz/item/1": 1})
         bot.send_message.assert_not_awaited()
         self.assertEqual(saved, [(1, 5000)])
 

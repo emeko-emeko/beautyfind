@@ -131,8 +131,8 @@ STORES = [
         price=".price .value",
         images=["img.tile-image"],
         link="a.link[href]",
-        detail="",
-        detail_ready="",
+        detail="spacenk",
+        detail_ready=".product-detail__prices .value",
         restricted_sel="h5.unavailable-notice",
     ),
 ]

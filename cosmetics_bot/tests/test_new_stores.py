@@ -227,3 +227,40 @@ class CurrencyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+SPACENK_PRODUCT_HTML = """
+<html><body>
+<div class="product-detail__prices flex-wrap d-none d-md-flex mb-4">
+  <div class="prices text-left w-md-50 mb-0 product-name__pricing">
+    <div class="price">
+      <span class="d-inline">
+        <span class="sales d-inline-block">
+          <span class="value" content="7800.0" data-price="7800.0">KZT 7,800</span>
+        </span>
+      </span>
+    </div>
+  </div>
+</div>
+</body></html>
+"""
+
+
+class SpaceNKDetailTests(unittest.TestCase):
+    def test_product_price_in_tenge(self):
+        from cosmetics_bot.src.scraping.details import DETAIL_HANDLERS, detail_spacenk
+        self.assertIs(DETAIL_HANDLERS["spacenk"], detail_spacenk)
+
+        async def run():
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch(headless=True)
+                try:
+                    page = await browser.new_page()
+                    await page.set_content(SPACENK_PRODUCT_HTML)
+                    return await detail_spacenk(page, None)
+                finally:
+                    await browser.close()
+
+        detail = asyncio.run(run())
+        self.assertEqual(detail["price"], 7800)
+        self.assertIsNone(detail["old_price"])
