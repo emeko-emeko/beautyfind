@@ -79,16 +79,10 @@ STORES = [
         detail="yvesrocher",
         detail_ready="[class*='ProductCardSidebar_priceDisplay']",
     ),
-]
-
-
-# Магазины, которые ещё не подключены к боту: не хватает адреса поиска.
-# Чтобы подключить, заполните search_url и перенесите запись в STORES.
-PENDING_STORES = [
     Store(
         name="Код де ви",
         base_url="https://cdv.kz",
-        search_url="",  # TODO: адрес поиска
+        search_url="https://cdv.kz/women/search?searchQuery={query}",
         # Классы с хешами (например _6hPivq_), поэтому ищем по части имени.
         card="div:has(> a[href^='/item/'])",
         brand="[class*='_brand']",
@@ -102,7 +96,7 @@ PENDING_STORES = [
     Store(
         name="Viled",
         base_url="https://viled.kz",
-        search_url="",  # TODO: адрес поиска
+        search_url="https://viled.kz/women/search?searchQuery={query}",
         card="div:has(> a[href^='/item/'])",
         brand="[class*='_brand']",
         name_sel="[class*='_title'] p",
@@ -112,6 +106,12 @@ PENDING_STORES = [
         detail="",
         detail_ready="",
     ),
+]
+
+
+# Магазины, которые ещё не подключены к боту: не хватает адреса поиска.
+# Чтобы подключить, заполните search_url и перенесите запись в STORES.
+PENDING_STORES = [
     Store(
         name="Space NK",
         base_url="https://www.spacenk.com",

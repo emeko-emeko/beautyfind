@@ -10,7 +10,7 @@ from playwright.async_api import async_playwright
 
 from cosmetics_bot.src.core.utils import EUR_TO_KZT
 from cosmetics_bot.src.scraping.search import EXTRACT_JS, SEL_FIELDS, _build_candidate
-from cosmetics_bot.src.scraping.stores import PENDING_STORES
+from cosmetics_bot.src.scraping.stores import PENDING_STORES, STORES
 from cosmetics_bot.src.ui.formatter import price_text
 
 CDV_HTML = """
@@ -66,7 +66,7 @@ CULT_HTML = """
 
 
 def _store(name):
-    return next(s for s in PENDING_STORES if s.name == name)
+    return next(s for s in STORES + PENDING_STORES if s.name == name)
 
 
 def _extract(html, store):
@@ -88,9 +88,14 @@ def _extract(html, store):
 
 
 class NewStoresParsingTests(unittest.TestCase):
-    def test_all_four_registered(self):
-        names = {s.name for s in PENDING_STORES}
-        self.assertEqual(names, {"Код де ви", "Viled", "Space NK", "Cult Beauty"})
+    def test_all_four_defined(self):
+        names = {s.name for s in STORES + PENDING_STORES}
+        self.assertTrue({"Код де ви", "Viled", "Space NK", "Cult Beauty"} <= names)
+
+    def test_connected_stores_have_search_url(self):
+        for name in ("Код де ви", "Viled"):
+            store = next(s for s in STORES if s.name == name)
+            self.assertIn("{query}", store.search_url)
 
     def test_cdv_card(self):
         items = _extract(CDV_HTML, _store("Код де ви"))
