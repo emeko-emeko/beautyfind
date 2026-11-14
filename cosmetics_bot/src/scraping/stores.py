@@ -106,6 +106,21 @@ STORES = [
         detail="",
         detail_ready="",
     ),
+    Store(
+        name="Cult Beauty",
+        base_url="https://www.cultbeauty.com",
+        search_url="https://www.cultbeauty.com/search/?q={query}",
+        card="product-card-wrapper",
+        brand="",
+        name_sel="a.product-item-title",
+        price="p.price",
+        images=["img.item-image"],
+        link="a.product-item[href]",
+        detail="",
+        detail_ready="",
+        price_currency="€",
+        fx_to_kzt=EUR_TO_KZT,
+    ),
 ]
 
 
@@ -125,21 +140,6 @@ PENDING_STORES = [
         detail="",
         detail_ready="",
         restricted_sel="h5.unavailable-notice",
-    ),
-    Store(
-        name="Cult Beauty",
-        base_url="https://www.cultbeauty.com",
-        search_url="",  # TODO: адрес поиска
-        card="product-card-wrapper",
-        brand="",
-        name_sel="a.product-item-title",
-        price="p.price",
-        images=["img.item-image"],
-        link="a.product-item[href]",
-        detail="",
-        detail_ready="",
-        price_currency="€",
-        fx_to_kzt=EUR_TO_KZT,
     ),
 ]
 

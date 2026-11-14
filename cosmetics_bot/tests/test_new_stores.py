@@ -93,7 +93,7 @@ class NewStoresParsingTests(unittest.TestCase):
         self.assertTrue({"Код де ви", "Viled", "Space NK", "Cult Beauty"} <= names)
 
     def test_connected_stores_have_search_url(self):
-        for name in ("Код де ви", "Viled"):
+        for name in ("Код де ви", "Viled", "Cult Beauty"):
             store = next(s for s in STORES if s.name == name)
             self.assertIn("{query}", store.search_url)
 
