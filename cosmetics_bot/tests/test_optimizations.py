@@ -109,10 +109,75 @@ class SearchCacheBoundsTests(unittest.TestCase):
     def test_expired_entries_are_purged_on_set(self):
         import time
         # Просроченная запись: другой запрос её не трогает, но set должен удалить её сам
-        search._search_cache["old"] = (time.monotonic() - search.SEARCH_CACHE_TTL - 10, [0], [])
+        search._search_cache["old"] = (time.monotonic() - search.SEARCH_CACHE_STALE - 10, [0], [])
         search_cache_set("new", [1], [])
         self.assertNotIn("old", search._search_cache)
         self.assertIn("new", search._search_cache)
+
+
+class SearchCacheFreshnessTests(unittest.TestCase):
+    def setUp(self):
+        search._search_cache.clear()
+        self.stores = [make_store(f"Shop {i}") for i in range(3)]
+        self.patch_stores = patch("cosmetics_bot.src.scraping.stores.STORES", self.stores)
+        self.patch_stores.start()
+
+    def tearDown(self):
+        self.patch_stores.stop()
+        search._search_cache.clear()
+
+    def _age(self, query, seconds):
+        import time
+        key = search._cache_key(query)
+        cands, unavailable = [1], []
+        search._search_cache[key] = (time.monotonic() - seconds, cands, unavailable)
+
+    def test_defaults_are_one_hour_fresh_and_six_hours_stale(self):
+        self.assertEqual(search.SEARCH_CACHE_TTL, 60 * 60)
+        self.assertEqual(search.SEARCH_CACHE_STALE, 6 * 60 * 60)
+        self.assertEqual(search.SEARCH_CACHE_MAX, 1000)
+
+    def test_entry_older_than_ttl_is_stale_not_fresh(self):
+        self._age("q", 2 * 60 * 60)
+        self.assertIsNone(search_cache_get("q"))
+        self.assertEqual(search.search_cache_get_stale("q"), ([1], []))
+
+    def test_entry_older_than_stale_limit_is_gone(self):
+        self._age("q", 7 * 60 * 60)
+        self.assertIsNone(search_cache_get("q"))
+        self.assertIsNone(search.search_cache_get_stale("q"))
+
+    def test_key_ignores_case_and_yo(self):
+        search_cache_set("Крём  для рук", ["c1"], [])
+        self.assertEqual(search_cache_get("крем для рук"), (["c1"], []))
+
+    def test_refresh_stores_new_result_and_clears_flag(self):
+        async def fake_collect(browser, query, groups):
+            return ["new"], []
+
+        with patch.object(search, "collect_all", fake_collect), \
+             patch("cosmetics_bot.src.scraping.stores.browser_ctx", _fake_browser):
+            asyncio.run(search._refresh("Крем", []))
+        self.assertEqual(search_cache_get("крем"), (["new"], []))
+        self.assertNotIn(search._cache_key("Крем"), search._refreshing)
+
+    def test_repeated_schedule_starts_one_refresh(self):
+        calls = []
+
+        async def fake_collect(browser, query, groups):
+            calls.append(query)
+            await asyncio.sleep(0.01)
+            return ["new"], []
+
+        async def main():
+            with patch.object(search, "collect_all", fake_collect), \
+                 patch("cosmetics_bot.src.scraping.stores.browser_ctx", _fake_browser):
+                search.schedule_refresh("Крем", [])
+                search.schedule_refresh("крем", [])
+                await asyncio.sleep(0.05)
+
+        asyncio.run(main())
+        self.assertEqual(len(calls), 1)
 
 
 class ConcurrencyTests(unittest.TestCase):

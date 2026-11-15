@@ -33,8 +33,9 @@ CARD_WAIT_MS = 12_000
 SCROLL_STEPS = 4                # сколько раз листать выдачу (ленивая подгрузка карточек)
 SCROLL_WAIT_MS = 1_000          # сколько ждать новые карточки после прокрутки
 SEARCH_CONCURRENCY = 3          # одновременно открытых магазинов (больше — падают вкладки)
-SEARCH_CACHE_TTL = 15 * 60      # сек, сколько храним выдачу по одному запросу
-SEARCH_CACHE_MAX = 200          # максимум запросов в кэше; самые давние вытесняются
+SEARCH_CACHE_TTL = 60 * 60          # сек, свежая выдача: отдаём без обращения к магазинам
+SEARCH_CACHE_STALE = 6 * 60 * 60    # сек, старая выдача: отдаём сразу и обновляем в фоне
+SEARCH_CACHE_MAX = 1000             # максимум запросов в кэше; самые давние вытесняются
 GOTO_TIMEOUT_MS = 20_000
 MAX_LOAD_ATTEMPTS = 2
 BLOCK_MARKERS = ("страница недоступна",)
@@ -327,32 +328,45 @@ async def list_store(
 
 
 # Кэш выдачи по запросу в памяти процесса: повтор того же запроса не открывает магазины заново.
-# Ключ — текст запроса без лишних пробелов (группы для релевантности выводятся из него же).
-# Ограничен по размеру (SEARCH_CACHE_MAX) и по времени (SEARCH_CACHE_TTL), иначе память растёт
-# с каждым новым запросом.
+# Ключ — запрос без лишних пробелов, в нижнем регистре, «ё» как «е» (группы для релевантности
+# выводятся из запроса, поэтому разные написания одного запроса дают один ключ).
+# Запись свежая до SEARCH_CACHE_TTL. После этого до SEARCH_CACHE_STALE её отдают сразу,
+# а выдачу обновляют в фоне (schedule_refresh). Всё ограничено по размеру и по времени,
+# иначе память растёт с каждым новым запросом.
 _search_cache: "OrderedDict[str, tuple[float, list[Candidate], list[str]]]" = OrderedDict()
+_refreshing: set[str] = set()     # ключи, по которым обновление уже идёт
+_refresh_tasks: set = set()       # ссылки на фоновые задачи, чтобы их не удалил сборщик мусора
 
 
 def _cache_key(query: str) -> str:
-    return " ".join(query.split())
+    return " ".join(query.split()).lower().replace("ё", "е")
 
 
 def _purge_expired(now: float) -> None:
-    for key in [k for k, (saved_at, _, _) in _search_cache.items() if now - saved_at > SEARCH_CACHE_TTL]:
+    for key in [k for k, (saved_at, _, _) in _search_cache.items() if now - saved_at > SEARCH_CACHE_STALE]:
         del _search_cache[key]
 
 
-def search_cache_get(query: str) -> tuple[list[Candidate], list[str]] | None:
+def _lookup(query: str, max_age: float) -> tuple[list[Candidate], list[str]] | None:
     key = _cache_key(query)
     hit = _search_cache.get(key)
     if hit is None:
         return None
     saved_at, cands, unavailable = hit
-    if time.monotonic() - saved_at > SEARCH_CACHE_TTL:
-        _search_cache.pop(key, None)
+    if time.monotonic() - saved_at > max_age:
         return None
     _search_cache.move_to_end(key)  # недавно использованный запрос вытесняется последним
     return cands, unavailable
+
+
+def search_cache_get(query: str) -> tuple[list[Candidate], list[str]] | None:
+    """Свежая выдача (моложе SEARCH_CACHE_TTL)."""
+    return _lookup(query, SEARCH_CACHE_TTL)
+
+
+def search_cache_get_stale(query: str) -> tuple[list[Candidate], list[str]] | None:
+    """Выдача старше TTL, но не старше SEARCH_CACHE_STALE. Её можно показать, пока идёт обновление."""
+    return _lookup(query, SEARCH_CACHE_STALE)
 
 
 def search_cache_set(query: str, cands: list[Candidate], unavailable: list[str]) -> None:
@@ -368,6 +382,34 @@ def search_cache_set(query: str, cands: list[Candidate], unavailable: list[str])
     _search_cache.move_to_end(key)
     while len(_search_cache) > SEARCH_CACHE_MAX:
         _search_cache.popitem(last=False)
+
+
+async def _refresh(query: str, groups: list[list[str]]) -> None:
+    """Собирает выдачу заново в собственном браузере и кладёт в кэш."""
+    from cosmetics_bot.src.scraping.stores import browser_ctx
+
+    key = _cache_key(query)
+    try:
+        async with browser_ctx() as browser:
+            cands, unavailable = await collect_all(browser, query, groups)
+        search_cache_set(query, cands, unavailable)
+        logging.info(f"[кэш] выдача обновлена в фоне: «{query}», карточек {len(cands)}")
+    except Exception as e:
+        logging.error(f"[кэш] фоновое обновление «{query}» не удалось: {e!r}")
+    finally:
+        _refreshing.discard(key)
+
+
+def schedule_refresh(query: str, groups: list[list[str]]) -> None:
+    """Запускает фоновое обновление выдачи. Повторные вызовы для того же запроса игнорируются,
+    пока первое обновление не закончится. Нужен работающий event loop."""
+    key = _cache_key(query)
+    if key in _refreshing:
+        return
+    _refreshing.add(key)
+    task = asyncio.create_task(_refresh(query, groups))
+    _refresh_tasks.add(task)
+    task.add_done_callback(_refresh_tasks.discard)
 
 
 async def collect_all(
