@@ -27,8 +27,7 @@ STORES = [
         detail_ready=".js-product-detail__price-now",
     ),
     Store(
-        name="Goldapple",
-        aliases=("Золотое Яблоко",),
+        name="Золотое Яблоко",
         base_url="https://goldapple.kz",
         search_url="https://goldapple.kz/catalogsearch/result/?q={query}",
         # Каждый товар в выдаче оборачивается в div[data-scroll-id].
@@ -51,8 +50,7 @@ STORES = [
         detail_ready="[data-test-id='price-info-block']",
     ),
     Store(
-        name="French House",
-        aliases=("Французский дом",),
+        name="Французский дом",
         base_url="https://french-house.kz",
         search_url="https://french-house.kz/search/index.php?q={query}",
         # Бренда в карточке нет: он входит в название товара.

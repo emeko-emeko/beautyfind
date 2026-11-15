@@ -140,3 +140,10 @@
 - **Где:** `cosmetics_bot/src/core/models.py` (поля `block_images`, `aliases`), `cosmetics_bot/src/scraping/search.py` (`_open_context`), `cosmetics_bot/src/scraping/stores.py` (названия, `find_store`), `cosmetics_bot/src/telegram/bot.py`, `cosmetics_bot/src/telegram/watcher.py` (поиск через `find_store`), тесты `test_new_stores.py`, `test_kodedevie_viled.py`, новый `test_store_images_names.py`.
 - **Кто решил:** владелец (просьба про картинки и официальные названия). Выбор английских вариантов «Goldapple» и «French House» сделан мной по сайтам, владелец может поправить.
 - **Статус:** принято. Названия «Goldapple» и «French House» ждут подтверждения владельца (открыто).
+
+### 023 — Отмена переименования «Золотое Яблоко» и «Французский дом»
+- **Что:** в записи 022 названия «Goldapple» и «French House» отменены. Возвращены официальные названия «Золотое Яблоко» и «Французский дом», их алиасы удалены. «Code de Vie» и алиас «Код де ви» из записи 022 остаются.
+- **Почему:** владелец указал, что «Золотое Яблоко» и «Французский дом» — официальные названия магазинов.
+- **Где:** `cosmetics_bot/src/scraping/stores.py`, `cosmetics_bot/tests/test_store_images_names.py`, `cosmetics_bot/tests/test_frenchhouse.py` (docstring).
+- **Кто решил:** владелец.
+- **Статус:** принято. Вопрос про английское «Goldapple»/«French House» из записи 022 закрыт.

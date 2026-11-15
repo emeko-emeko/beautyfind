@@ -43,19 +43,18 @@ class OfficialNamesTests(unittest.TestCase):
     def test_official_names(self):
         names = {s.name for s in STORES}
         self.assertIn("Code de Vie", names)
-        self.assertIn("Goldapple", names)
-        self.assertIn("French House", names)
+        self.assertIn("Золотое Яблоко", names)
+        self.assertIn("Французский дом", names)
         self.assertNotIn("Код де ви", names)
-        self.assertNotIn("Золотое Яблоко", names)
-        self.assertNotIn("Французский дом", names)
 
-    def test_old_names_still_resolve(self):
-        for old, new in (("Код де ви", "Code de Vie"),
-                         ("Золотое Яблоко", "Goldapple"),
-                         ("Французский дом", "French House")):
-            store = find_store(old)
-            self.assertIsNotNone(store, old)
-            self.assertEqual(store.name, new)
+    def test_old_name_still_resolves(self):
+        store = find_store("Код де ви")
+        self.assertIsNotNone(store)
+        self.assertEqual(store.name, "Code de Vie")
+
+    def test_current_names_resolve(self):
+        for name in ("Code de Vie", "Золотое Яблоко", "Французский дом"):
+            self.assertIsNotNone(find_store(name), name)
 
     def test_unknown_name_returns_none(self):
         self.assertIsNone(find_store("Unknown"))
