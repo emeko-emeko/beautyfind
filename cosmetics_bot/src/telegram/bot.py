@@ -1,11 +1,14 @@
 """Telegram bot handlers and dispatcher setup."""
 import asyncio
 import html
+import io
 import logging
 import time
+import aiohttp
+from PIL import Image
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from cosmetics_bot.src.core.models import Candidate, Group
@@ -91,12 +94,46 @@ async def finalize_cands(browser, cands: list[Candidate], want_volume: float | N
     return pick_winner(results)
 
 
+IMAGE_TIMEOUT = 10  # сек на скачивание картинки самим ботом
+
+
+def _to_jpeg(raw: bytes) -> bytes:
+    """Telegram принимает JPEG/PNG; сайты отдают webp, поэтому переводим."""
+    out = io.BytesIO()
+    Image.open(io.BytesIO(raw)).convert("RGB").save(out, format="JPEG", quality=90)
+    return out.getvalue()
+
+
+async def fetch_image_jpeg(url: str) -> bytes | None:
+    """Скачиваем картинку сами: Telegram не всегда открывает ссылку (Code de Vie: «failed to get HTTP URL content»)."""
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=IMAGE_TIMEOUT)) as session:
+            async with session.get(url) as resp:
+                if resp.status != 200:
+                    logging.warning(f"Картинка не скачалась: HTTP {resp.status}")
+                    return None
+                raw = await resp.read()
+        return _to_jpeg(raw)
+    except Exception as e:
+        logging.warning(f"Картинка не скачалась: {e!r}")
+        return None
+
+
 async def send_card(message: Message, caption: str, image_url: str, reply_markup=None):
     if image_url:
         try:
             return await message.answer_photo(photo=image_url, caption=caption, reply_markup=reply_markup)
         except Exception as e:
-            logging.warning(f"Не удалось отправить фото, отправляю текстом: {e}")
+            logging.warning(f"Telegram не открыл фото по ссылке, пробую загрузить сами: {e}")
+        data = await fetch_image_jpeg(image_url)
+        if data:
+            try:
+                return await message.answer_photo(
+                    photo=BufferedInputFile(data, filename="photo.jpg"),
+                    caption=caption, reply_markup=reply_markup,
+                )
+            except Exception as e:
+                logging.warning(f"Не удалось отправить фото, отправляю текстом: {e}")
     return await message.answer(caption, reply_markup=reply_markup)
 
 

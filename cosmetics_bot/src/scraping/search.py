@@ -38,12 +38,14 @@ SEARCH_CACHE_MAX = 200          # максимум запросов в кэше;
 GOTO_TIMEOUT_MS = 20_000
 MAX_LOAD_ATTEMPTS = 2
 BLOCK_MARKERS = ("страница недоступна",)
-NOT_FOUND_MARKERS = ("ничего не найден",)
+# Фразы пустой выдачи на сайтах: Viled — «товаров не найдено», Space NK — «couldn't find results»
+NOT_FOUND_MARKERS = ("ничего не найден", "товаров не найдено", "couldn't find results", "couldn’t find results")
 HEAVY_RESOURCES = {"image", "font", "media"}
 
 STATUS_OK = "ok"                  # выдача получена (карточки могут быть пустыми)
 STATUS_EMPTY = "empty"            # магазин ответил «ничего не найдено»
 STATUS_UNAVAILABLE = "unavailable"  # таймаут, заглушка, ошибка: магазин не ответил
+STATUS_PRODUCT = "product"          # сайт сразу открыл страницу одного товара, списка нет
 
 # Один вызов в браузере: читает все карточки разом.
 EXTRACT_JS = """
@@ -191,10 +193,33 @@ async def _page_diag(page: Page, response) -> str:
     return f"HTTP {status}, title {title!r}, текст {len(text)} симв."
 
 
+async def _is_product_page(page: Page, store: Store) -> bool:
+    return bool(store.product_page_sel) and await page.locator(store.product_page_sel).count() > 0
+
+
+async def _product_raw(page: Page, store: Store) -> dict:
+    """Одна карточка из страницы товара (когда сайт пропустил список)."""
+    async def txt(sel: str | None) -> str:
+        if not sel:
+            return ""
+        loc = page.locator(sel).first
+        return ((await loc.text_content()) or "").strip() if await loc.count() else ""
+
+    name = " ".join((await txt(store.product_name_sel)).split())
+    brand_block = await txt(store.product_brand_sel)
+    brand = " ".join(brand_block.split("\n")[0].split()) if brand_block else ""
+    return {
+        "url": page.url, "name": name, "brand": brand, "type": "", "label": name,
+        "image": "", "rating": "", "reviews": "", "price": "", "restricted": False,
+    }
+
+
 async def _load_listing(page: Page, store: Store, url: str) -> str:
     for attempt in range(1, MAX_LOAD_ATTEMPTS + 1):
         response = await page.goto(url, timeout=GOTO_TIMEOUT_MS, wait_until="domcontentloaded")
         state = await _wait_listing(page, store)
+        if state == "timeout" and await _is_product_page(page, store):
+            return STATUS_PRODUCT
         if state == "empty":
             # Магазин честно ответил «ничего не найдено»: ждать и повторять незачем
             logging.info(f"[{store.name}] в выдаче ничего не найдено")
@@ -269,6 +294,9 @@ async def list_store(
         logging.info(f"[{store.name}] запрос: {url}")
 
         status = await _load_listing(page, store, url)
+        if status == STATUS_PRODUCT:
+            logging.info(f"[{store.name}] сайт открыл страницу товара вместо списка")
+            return STATUS_OK, [_build_candidate(store, await _product_raw(page, store), groups, 0)]
         if status == STATUS_UNAVAILABLE:
             logging.warning(f"[{store.name}] выдача не загрузилась")
             await _dump_debug(page, store)

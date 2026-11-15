@@ -43,6 +43,11 @@ class Store:
     block_images: bool = True
     # Прежние названия магазина: по ним ищутся старые записи в избранном и отслеживании
     aliases: tuple = ()
+    # Если на запрос сайт сразу открывает страницу одного товара (без списка), по этим селекторам
+    # собирается одна карточка: страница товара, бренд, название
+    product_page_sel: Optional[str] = None
+    product_brand_sel: Optional[str] = None
+    product_name_sel: Optional[str] = None
 
 
 @dataclass

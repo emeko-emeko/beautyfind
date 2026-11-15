@@ -25,6 +25,10 @@ STORES = [
         link="a.catalog-item__image",
         detail="monamie",
         detail_ready=".js-product-detail__price-now",
+        # На кириллический запрос сайт открывает страницу товара без списка
+        product_page_sel=".product-detail__head",
+        product_brand_sel=".product-detail__head",
+        product_name_sel=".product-detail__head-subtitle",
     ),
     Store(
         name="Золотое Яблоко",
@@ -165,5 +169,6 @@ async def browser_ctx():
     async with _BROWSER_LOCK:
         if _BROWSER is None or not _BROWSER.is_connected():
             _PW = await async_playwright().start()
-            _BROWSER = await _PW.chromium.launch(headless=True)
+            # --disable-dev-shm-usage: в контейнере мало /dev/shm, иначе вкладки падают («Target crashed»)
+            _BROWSER = await _PW.chromium.launch(headless=True, args=["--disable-dev-shm-usage"])
     yield _BROWSER
