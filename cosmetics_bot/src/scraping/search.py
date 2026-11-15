@@ -179,9 +179,21 @@ async def _wait_listing(page: Page, store: Store) -> str:
     return await handle.json_value()
 
 
+async def _page_diag(page: Page, response) -> str:
+    """Короткая сводка о странице для лога: HTTP-статус, title, длина текста.
+    Нужна, чтобы отличить блокировку (статус 403, пустой текст) от медленной загрузки."""
+    status = getattr(response, "status", "?") if response is not None else "?"
+    try:
+        title = await page.title()
+    except Exception:
+        title = "?"
+    text = await _body_text(page)
+    return f"HTTP {status}, title {title!r}, текст {len(text)} симв."
+
+
 async def _load_listing(page: Page, store: Store, url: str) -> str:
     for attempt in range(1, MAX_LOAD_ATTEMPTS + 1):
-        await page.goto(url, timeout=GOTO_TIMEOUT_MS, wait_until="domcontentloaded")
+        response = await page.goto(url, timeout=GOTO_TIMEOUT_MS, wait_until="domcontentloaded")
         state = await _wait_listing(page, store)
         if state == "empty":
             # Магазин честно ответил «ничего не найдено»: ждать и повторять незачем
@@ -194,7 +206,7 @@ async def _load_listing(page: Page, store: Store, url: str) -> str:
         blocked = any(m in text for m in BLOCK_MARKERS)
         logging.warning(
             f"[{store.name}] попытка {attempt}: карточек нет "
-            f"(заглушка сайта: {blocked})"
+            f"(заглушка сайта: {blocked}; {await _page_diag(page, response)})"
         )
         await page.wait_for_timeout(1500 * attempt)
     return STATUS_UNAVAILABLE

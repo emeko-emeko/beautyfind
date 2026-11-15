@@ -43,6 +43,7 @@ def make_page(body_text: str, wait_state: str | None) -> MagicMock:
     Ожидание теперь идёт внутри страницы (wait_for_function), поэтому мокаем его результат."""
     page = MagicMock()
     page.goto = AsyncMock()
+    page.title = AsyncMock(return_value="Test title")
     page.wait_for_timeout = AsyncMock()
     page.mouse.wheel = AsyncMock()
 
@@ -106,6 +107,17 @@ class LoadListingStatusTests(unittest.TestCase):
         page = make_page(body_text="", wait_state=None)
         self.assertEqual(self.run_load(page), STATUS_UNAVAILABLE)
         self.assertEqual(page.goto.await_count, MAX_LOAD_ATTEMPTS)
+
+    def test_failed_attempt_logs_http_status_title_and_length(self):
+        # Диагностика: по логу должно быть видно HTTP-статус, title и длину текста страницы
+        page = make_page(body_text="x" * 42, wait_state=None)
+        page.goto = AsyncMock(return_value=MagicMock(status=403))
+        with self.assertLogs(level="WARNING") as logs:
+            self.run_load(page)
+        joined = "\n".join(logs.output)
+        self.assertIn("HTTP 403", joined)
+        self.assertIn("title 'Test title'", joined)
+        self.assertIn("текст 42 симв.", joined)
 
     def test_site_block_page_is_unavailable(self):
         page = make_page(body_text="Страница недоступна", wait_state=None)
