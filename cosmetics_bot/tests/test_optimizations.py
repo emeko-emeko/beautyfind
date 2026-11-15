@@ -67,9 +67,15 @@ class SearchCacheTests(unittest.TestCase):
         search_cache_set("q", [], [s.name for s in self.stores])
         self.assertIsNone(search_cache_get("q"))
 
-    def test_partial_unavailability_is_cached_with_names(self):
+    def test_partial_unavailability_is_not_cached(self):
+        # Частичная выдача (один магазин не ответил) не кэшируется: иначе сбой держится час
         search_cache_set("q", ["c1"], ["Shop 0"])
-        self.assertEqual(search_cache_get("q"), (["c1"], ["Shop 0"]))
+        self.assertIsNone(search_cache_get("q"))
+        self.assertIsNone(search.search_cache_get_stale("q"))
+
+    def test_complete_result_is_cached_with_empty_unavailable(self):
+        search_cache_set("q", ["c1"], [])
+        self.assertEqual(search_cache_get("q"), (["c1"], []))
 
     def test_entry_expires_after_ttl(self):
         search_cache_set("q", ["c1"], [])

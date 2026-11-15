@@ -439,10 +439,9 @@ def search_cache_get_stale(query: str) -> tuple[list[Candidate], list[str]] | No
 
 
 def search_cache_set(query: str, cands: list[Candidate], unavailable: list[str]) -> None:
-    """Не кэшируем, если ни один магазин не ответил: это сбой, а не результат."""
-    from cosmetics_bot.src.scraping.stores import STORES
-
-    if len(unavailable) >= len(STORES):
+    """Не кэшируем, если хоть один магазин не ответил: частичная выдача закрепила бы сбой на час.
+    Старая полная запись при этом не удаляется: её продолжают отдавать, пока она не устареет."""
+    if unavailable:
         return
     now = time.monotonic()
     _purge_expired(now)
