@@ -9,7 +9,7 @@ from aiogram import Bot
 from cosmetics_bot.src.core.db import get_watches_for_monitor, update_watch_price
 from cosmetics_bot.src.core.models import Candidate
 from cosmetics_bot.src.core.utils import format_money
-from cosmetics_bot.src.scraping.details import DETAIL_HANDLERS, fetch_detail
+from cosmetics_bot.src.scraping.details import DETAIL_HANDLERS, fetch_detail, open_detail_context
 from cosmetics_bot.src.scraping.stores import STORES, browser_ctx, find_store
 
 CHECK_INTERVAL = 600   # сек между проходами по списку
@@ -26,13 +26,12 @@ def is_watch_supported(store_name: str) -> bool:
     return bool(store and store.detail in DETAIL_HANDLERS)
 
 
-async def _fetch_price(store, watch: dict) -> dict | None:
+async def _fetch_price(store, watch: dict, browser, context) -> dict | None:
     cand = Candidate(
         store=store, brand="", name=watch["title"], type_="", label="", url=watch["product_url"],
         image="", rating=None, reviews=0, list_price=None, price_prefix="", pos=0,
     )
-    async with browser_ctx() as browser:
-        return await fetch_detail(browser, cand, watch.get("volume"))
+    return await fetch_detail(browser, cand, watch.get("volume"), context=context)
 
 
 async def _notify(bot: Bot, watch: dict, old: int, new: int, currency: str) -> None:
@@ -49,31 +48,57 @@ async def _notify(bot: Bot, watch: dict, old: int, new: int, currency: str) -> N
         logging.warning(f"Не удалось отправить уведомление о цене: {e!r}")
 
 
+async def _check_one(bot: Bot, store, w: dict, browser, context) -> None:
+    try:
+        res = await _fetch_price(store, w, browser, context)
+    except Exception as e:
+        logging.warning(f"[{store.name}] проверка цены не удалась: {e!r}")
+        res = None
+
+    if not res or res.get("price") is None:
+        # Товара нет в наличии или страница не открылась: цену не меняем
+        update_watch_price(w["id"], w["last_price"])
+    else:
+        new = res["price"]
+        old = w["last_price"]
+        if old is not None and new != old:
+            await _notify(bot, w, old, new, store.currency)
+        update_watch_price(w["id"], new)
+
+
+async def _check_store(bot: Bot, store, items: list[dict]) -> None:
+    """Все отслеживаемые товары одного магазина — в одном браузерном контексте."""
+    done = 0
+    try:
+        async with browser_ctx() as browser:
+            context = await open_detail_context(browser)
+            try:
+                for w in items:
+                    await _check_one(bot, store, w, browser, context)
+                    done += 1
+                    await asyncio.sleep(PAUSE_BETWEEN)
+            finally:
+                await context.close()
+    except Exception as e:
+        # Браузер или контекст не поднялись: цены необработанных товаров не меняем,
+        # уже проверенные не трогаем (иначе старая цена вернулась бы в базу)
+        logging.warning(f"[{store.name}] проверка прервана: {e!r}")
+        for w in items[done:]:
+            update_watch_price(w["id"], w["last_price"])
+
+
 async def check_watches(bot: Bot) -> None:
+    groups: dict[str, tuple] = {}  # название магазина -> (магазин, [подписки])
     for w in get_watches_for_monitor():
         store = store_for_url(w["product_url"])
         if store is None or store.detail not in DETAIL_HANDLERS:
             # Магазин без страницы товара: проверку пропускаем, цена остаётся прежней
             update_watch_price(w["id"], w["last_price"])
             continue
+        groups.setdefault(store.name, (store, []))[1].append(w)
 
-        try:
-            res = await _fetch_price(store, w)
-        except Exception as e:
-            logging.warning(f"[{store.name}] проверка цены не удалась: {e!r}")
-            res = None
-
-        if not res or res.get("price") is None:
-            # Товара нет в наличии или страница не открылась: цену не меняем
-            update_watch_price(w["id"], w["last_price"])
-        else:
-            new = res["price"]
-            old = w["last_price"]
-            if old is not None and new != old:
-                await _notify(bot, w, old, new, store.currency)
-            update_watch_price(w["id"], new)
-
-        await asyncio.sleep(PAUSE_BETWEEN)
+    for store, items in groups.values():
+        await _check_store(bot, store, items)
 
 
 async def watch_loop(bot: Bot) -> None:

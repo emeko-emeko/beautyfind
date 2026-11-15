@@ -38,21 +38,26 @@ def make_store(name: str) -> Store:
     )
 
 
-def make_page(body_text: str, card_found: bool, cards_after_polls: int = 0) -> MagicMock:
-    """card_found=True — карточки есть сразу; иначе они появятся после cards_after_polls опросов
-    (если cards_after_polls=0 и card_found=False — карточек не будет совсем)."""
+def make_page(body_text: str, wait_state: str | None) -> MagicMock:
+    """wait_state — что вернёт ожидание выдачи в браузере: «ok», «empty» или None (таймаут).
+    Ожидание теперь идёт внутри страницы (wait_for_function), поэтому мокаем его результат."""
     page = MagicMock()
     page.goto = AsyncMock()
     page.wait_for_timeout = AsyncMock()
     page.mouse.wheel = AsyncMock()
-    if card_found:
-        counts = [1]
-    elif cards_after_polls:
-        counts = [0] * cards_after_polls + [1]
-    else:
-        counts = [0]
+
+    async def wait_for_function(js, arg=None, timeout=None, **_):
+        if js != search.WAIT_LISTING_JS:
+            return MagicMock()  # догрузка карточек при прокрутке: считаем, что ничего не добавилось
+        if wait_state is None:
+            raise PWTimeout("timeout")
+        handle = MagicMock()
+        handle.json_value = AsyncMock(return_value=wait_state)
+        return handle
+
+    page.wait_for_function = AsyncMock(side_effect=wait_for_function)
     locator = MagicMock()
-    locator.count = AsyncMock(side_effect=counts + [counts[-1]] * 10_000)
+    locator.count = AsyncMock(return_value=0)
     locator.inner_text = AsyncMock(return_value=body_text)
     page.locator = MagicMock(return_value=locator)
     return page
@@ -76,40 +81,34 @@ class UnavailableLineTests(unittest.TestCase):
 
 
 class LoadListingStatusTests(unittest.TestCase):
-    def run_load(self, page, card_wait_ms: int = 30) -> str:
-        # Короткий таймаут, чтобы тесты не ждали реальные 12 секунд
-        with patch.object(search, "CARD_WAIT_MS", card_wait_ms), \
-             patch.object(search, "POLL_MS", 1):
-            return asyncio.run(_load_listing(page, make_store("Mon Amie"), "https://x"))
+    def run_load(self, page) -> str:
+        # Таймаут ожидания в тестах не ждём: мок страницы отвечает сразу
+        return asyncio.run(_load_listing(page, make_store("Mon Amie"), "https://x"))
 
     def test_cards_found_is_ok(self):
-        page = make_page(body_text="", card_found=True)
+        page = make_page(body_text="", wait_state="ok")
         self.assertEqual(self.run_load(page), STATUS_OK)
 
-    def test_cards_appearing_later_are_ok(self):
-        page = make_page(body_text="", card_found=False, cards_after_polls=3)
-        self.assertEqual(self.run_load(page, card_wait_ms=10_000), STATUS_OK)
+    def test_wait_uses_card_timeout_and_store_selector(self):
+        page = make_page(body_text="", wait_state="ok")
+        self.run_load(page)
+        js, kwargs = page.wait_for_function.await_args_list[0].args[0], page.wait_for_function.await_args_list[0].kwargs
+        self.assertEqual(js, search.WAIT_LISTING_JS)
+        self.assertEqual(kwargs["timeout"], search.CARD_WAIT_MS)
+        self.assertEqual(page.wait_for_function.await_args_list[0].kwargs["arg"][0], ".card")
 
     def test_not_found_text_is_empty_and_not_retried(self):
-        page = make_page(body_text="По запросу ничего не найдено", card_found=False)
+        page = make_page(body_text="По запросу ничего не найдено", wait_state="empty")
         self.assertEqual(self.run_load(page), STATUS_EMPTY)
         self.assertEqual(page.goto.await_count, 1)
 
-    def test_empty_result_returns_without_waiting_full_card_timeout(self):
-        import time
-        page = make_page(body_text="По запросу ничего не найдено", card_found=False)
-        t = time.perf_counter()
-        # Таймаут 10 с: раньше ждали бы его целиком; теперь признак пустой выдачи возвращает сразу
-        self.assertEqual(self.run_load(page, card_wait_ms=10_000), STATUS_EMPTY)
-        self.assertLess(time.perf_counter() - t, 2.0)
-
     def test_timeout_without_markers_is_unavailable(self):
-        page = make_page(body_text="", card_found=False)
+        page = make_page(body_text="", wait_state=None)
         self.assertEqual(self.run_load(page), STATUS_UNAVAILABLE)
         self.assertEqual(page.goto.await_count, MAX_LOAD_ATTEMPTS)
 
     def test_site_block_page_is_unavailable(self):
-        page = make_page(body_text="Страница недоступна", card_found=False)
+        page = make_page(body_text="Страница недоступна", wait_state=None)
         self.assertEqual(self.run_load(page), STATUS_UNAVAILABLE)
 
 

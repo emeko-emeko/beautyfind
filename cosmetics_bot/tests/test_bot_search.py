@@ -101,6 +101,10 @@ class FinalizeConcurrencyTests(unittest.TestCase):
 class SingleItemSessionTests(unittest.TestCase):
     def test_single_position_uses_one_browser_block(self):
         from cosmetics_bot.src.core.models import Candidate
+        from cosmetics_bot.src.scraping import search as search_mod
+
+        # Кэш выдачи общий для процесса: без очистки запрос «крем» взял бы результат прошлых тестов
+        search_mod._search_cache.clear()
 
         cand = Candidate(store=STORES[0], brand="Vichy", name="Dercos", type_="", label="",
                          url="https://example.test/p/1", image="", rating=None, reviews=0,

@@ -8,6 +8,7 @@
 import asyncio
 import os
 import unittest
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import psycopg
@@ -106,13 +107,23 @@ class CheckWatchesTests(unittest.TestCase):
         bot = MagicMock()
         bot.send_message = AsyncMock()
 
-        async def fake_fetch(store, w):
+        async def fake_fetch(store, w, browser, context):
             p = price_by_url.get(w["product_url"])
             return None if p is None else {"price": p}
+
+        # Браузер не нужен: _fetch_price подменён, контекст тоже
+        @asynccontextmanager
+        async def fake_browser():
+            yield MagicMock()
+
+        fake_context = MagicMock()
+        fake_context.close = AsyncMock()
 
         with patch.object(watcher, "get_watches_for_monitor", lambda: watches), \
              patch.object(watcher, "update_watch_price", lambda wid, price: saved.append((wid, price))), \
              patch.object(watcher, "_fetch_price", fake_fetch), \
+             patch.object(watcher, "browser_ctx", fake_browser), \
+             patch.object(watcher, "open_detail_context", AsyncMock(return_value=fake_context)), \
              patch.object(watcher, "PAUSE_BETWEEN", 0):
             asyncio.run(watcher.check_watches(bot))
         return bot, saved

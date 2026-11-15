@@ -20,7 +20,7 @@ from cosmetics_bot.src.core.utils import (
     MIN_RATIO
 )
 from cosmetics_bot.src.scraping.stores import STORES, browser_ctx, find_store
-from cosmetics_bot.src.scraping.search import collect_all
+from cosmetics_bot.src.scraping.search import collect_all, search_cache_get, search_cache_set
 from cosmetics_bot.src.scraping.details import fetch_detail
 from cosmetics_bot.src.ui.formatter import build_caption, render_group, render_member
 from cosmetics_bot.src.telegram.watcher import is_watch_supported
@@ -424,7 +424,12 @@ async def handle_search(message: Message):
 
     try:
         async with browser_ctx() as browser:
-            cands, unavailable = await collect_all(browser, query, groups_q)
+            cached = search_cache_get(query)
+            if cached is not None:
+                cands, unavailable = cached
+            else:
+                cands, unavailable = await collect_all(browser, query, groups_q)
+                search_cache_set(query, cands, unavailable)
             plan = make_plan(groups_q, cands)
 
             winner = None

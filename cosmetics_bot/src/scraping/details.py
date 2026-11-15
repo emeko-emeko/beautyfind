@@ -3,7 +3,7 @@
 import asyncio
 import json
 import re
-from playwright.async_api import Browser
+from playwright.async_api import Browser, BrowserContext
 from cosmetics_bot.src.core.models import Candidate
 from cosmetics_bot.src.core.utils import (
     digits_int,
@@ -317,7 +317,20 @@ DETAIL_HANDLERS = {
 }
 
 
-async def fetch_detail(browser: Browser, cand: Candidate, want_volume: float | None) -> dict | None:
+async def open_detail_context(browser: Browser) -> BrowserContext:
+    """Контекст для страниц товара: картинки, шрифты и видео не нужны, цена приходит из HTML/JS."""
+    context = await browser.new_context(user_agent=USER_AGENT, locale="ru-RU")
+    await context.route("**/*", _block_heavy)
+    return context
+
+
+async def fetch_detail(
+    browser: Browser,
+    cand: Candidate,
+    want_volume: float | None,
+    context: BrowserContext | None = None,
+) -> dict | None:
+    """context: общий контекст (например, на весь магазин у наблюдателя). Если не передан — открывается свой."""
     store = cand.store
     result = cand.to_result()
 
@@ -340,16 +353,18 @@ async def fetch_detail(browser: Browser, cand: Candidate, want_volume: float | N
         return result
 
     async def _load():
-        context = await browser.new_context(user_agent=USER_AGENT, locale="ru-RU")
-        # Картинки, шрифты и видео на странице товара не нужны: цена приходит из HTML/JS
-        await context.route("**/*", _block_heavy)
+        ctx = context or await open_detail_context(browser)
+        page = None
         try:
-            page = await context.new_page()
+            page = await ctx.new_page()
             await page.goto(cand.url, timeout=30000, wait_until="domcontentloaded")
             await page.wait_for_selector(store.detail_ready, timeout=15000)
             return await DETAIL_HANDLERS[store.detail](page, want_volume)
         finally:
-            await context.close()
+            if context is None:
+                await ctx.close()
+            elif page is not None:
+                await page.close()
 
     detail = None
     try:

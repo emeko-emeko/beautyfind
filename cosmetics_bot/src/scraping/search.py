@@ -29,7 +29,10 @@ from cosmetics_bot.src.scraping.stores import USER_AGENT
 DEBUG = os.getenv("SCRAPER_DEBUG") == "1"
 STORAGE_STATE = os.getenv("GA_STORAGE_STATE")  # файл с куками (адрес доставки)
 CARD_WAIT_MS = 12_000
-POLL_MS = 400                   # шаг опроса выдачи: карточки или «ничего не найдено»
+SCROLL_STEPS = 4                # сколько раз листать выдачу (ленивая подгрузка карточек)
+SCROLL_WAIT_MS = 1_000          # сколько ждать новые карточки после прокрутки
+SEARCH_CONCURRENCY = 3          # одновременно открытых магазинов (больше — падают вкладки)
+SEARCH_CACHE_TTL = 15 * 60      # сек, сколько храним выдачу по одному запросу
 GOTO_TIMEOUT_MS = 20_000
 MAX_LOAD_ATTEMPTS = 2
 BLOCK_MARKERS = ("страница недоступна",)
@@ -131,25 +134,47 @@ async def _body_text(page: Page) -> str:
         return ""
 
 
-async def _scroll_all(page: Page) -> None:
-    for _ in range(4):
+async def _scroll_all(page: Page, card: str) -> None:
+    """Листаем выдачу, пока догружаются новые карточки. Ждём их появления в браузере,
+    а не фиксированные паузы: как только ничего не догрузилось или набран лимит — останавливаемся."""
+    for _ in range(SCROLL_STEPS):
+        before = await page.locator(card).count()
+        if before >= CARDS_PER_STORE:
+            return
         await page.mouse.wheel(0, 1500)
-        await page.wait_for_timeout(250)
+        try:
+            await page.wait_for_function(
+                "([sel, n]) => document.querySelectorAll(sel).length > n",
+                arg=[card, before],
+                timeout=SCROLL_WAIT_MS,
+            )
+        except PWTimeout:
+            return
+
+
+# Ждём в браузере одно из двух: карточки или признак пустой выдачи (без опроса из Python)
+WAIT_LISTING_JS = """
+([cardSel, markers]) => {
+  if (document.querySelector(cardSel)) return "ok";
+  const t = ((document.body && document.body.innerText) || "").toLowerCase();
+  if (markers.some((m) => t.includes(m))) return "empty";
+  return null;
+}
+"""
 
 
 async def _wait_listing(page: Page, store: Store) -> str:
-    """Опрос страницы: возвращает «ok» или «empty» сразу, как только видно карточку
-    или признак пустой выдачи. Если не появилось ни то ни другое — «timeout»."""
-    deadline = time.monotonic() + CARD_WAIT_MS / 1000
-    while True:
-        if await page.locator(store.card).count() > 0:
-            return "ok"
-        text = await _body_text(page)
-        if any(m in text for m in NOT_FOUND_MARKERS):
-            return "empty"
-        if time.monotonic() >= deadline:
-            return "timeout"
-        await page.wait_for_timeout(POLL_MS)
+    """Возвращает «ok» или «empty» сразу, как только видно карточку или признак пустой выдачи.
+    Если ни то ни другое не появилось за CARD_WAIT_MS — «timeout»."""
+    try:
+        handle = await page.wait_for_function(
+            WAIT_LISTING_JS,
+            arg=[store.card, list(NOT_FOUND_MARKERS)],
+            timeout=CARD_WAIT_MS,
+        )
+    except PWTimeout:
+        return "timeout"
+    return await handle.json_value()
 
 
 async def _load_listing(page: Page, store: Store, url: str) -> str:
@@ -161,7 +186,7 @@ async def _load_listing(page: Page, store: Store, url: str) -> str:
             logging.info(f"[{store.name}] в выдаче ничего не найдено")
             return STATUS_EMPTY
         if state == "ok":
-            await _scroll_all(page)
+            await _scroll_all(page, store.card)
             return STATUS_OK
         text = await _body_text(page)
         blocked = any(m in text for m in BLOCK_MARKERS)
@@ -259,24 +284,57 @@ async def list_store(
         await ctx.close()
 
 
+# Кэш выдачи по запросу в памяти процесса: повтор того же запроса не открывает магазины заново.
+# Ключ — текст запроса без лишних пробелов (группы для релевантности выводятся из него же).
+_search_cache: dict[str, tuple[float, list[Candidate], list[str]]] = {}
+
+
+def _cache_key(query: str) -> str:
+    return " ".join(query.split())
+
+
+def search_cache_get(query: str) -> tuple[list[Candidate], list[str]] | None:
+    hit = _search_cache.get(_cache_key(query))
+    if hit is None:
+        return None
+    saved_at, cands, unavailable = hit
+    if time.monotonic() - saved_at > SEARCH_CACHE_TTL:
+        _search_cache.pop(_cache_key(query), None)
+        return None
+    return cands, unavailable
+
+
+def search_cache_set(query: str, cands: list[Candidate], unavailable: list[str]) -> None:
+    """Не кэшируем, если ни один магазин не ответил: это сбой, а не результат."""
+    from cosmetics_bot.src.scraping.stores import STORES
+
+    if len(unavailable) >= len(STORES):
+        return
+    _search_cache[_cache_key(query)] = (time.monotonic(), cands, unavailable)
+
+
 async def collect_all(
     browser: Browser, query: str, groups: list[list[str]]
 ) -> tuple[list[Candidate], list[str]]:
     """Возвращает (кандидаты всех магазинов, названия магазинов, которые не ответили)."""
     from cosmetics_bot.src.scraping.stores import STORES
 
+    # Семафор: таймаут магазина считается только когда он уже работает, а не пока ждёт очереди
+    sem = asyncio.Semaphore(SEARCH_CONCURRENCY)
+
     async def run(store: Store) -> tuple[str, list[Candidate]]:
-        try:
-            return await asyncio.wait_for(
-                list_store(browser, store, query, groups),
-                timeout=STORE_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            logging.error(f"[{store.name}] таймаут {STORE_TIMEOUT} с")
-            return STATUS_UNAVAILABLE, []
-        except Exception as e:
-            logging.error(f"[{store.name}] ошибка: {e!r}")
-            return STATUS_UNAVAILABLE, []
+        async with sem:
+            try:
+                return await asyncio.wait_for(
+                    list_store(browser, store, query, groups),
+                    timeout=STORE_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                logging.error(f"[{store.name}] таймаут {STORE_TIMEOUT} с")
+                return STATUS_UNAVAILABLE, []
+            except Exception as e:
+                logging.error(f"[{store.name}] ошибка: {e!r}")
+                return STATUS_UNAVAILABLE, []
 
     results = await asyncio.gather(*(run(s) for s in STORES))
     cands = [c for _, r in results for c in r]

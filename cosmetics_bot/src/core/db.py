@@ -5,19 +5,42 @@
 """
 
 import os
+import threading
 import time
 from typing import Optional, List, Dict, Any
 
-import psycopg
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
+
+POOL_MIN_SIZE = 1
+POOL_MAX_SIZE = 5  # Supabase ограничивает число соединений; бот не должен занимать их все
+
+_pool: Optional[ConnectionPool] = None
+_pool_lock = threading.Lock()
 
 
-def get_connection() -> psycopg.Connection:
-    url = os.environ.get("DATABASE_URL")
-    if not url:
-        raise RuntimeError("Не задана переменная окружения DATABASE_URL (строка подключения Supabase)")
-    # with conn: в конце транзакции делает commit (или rollback при ошибке) и закрывает соединение
-    return psycopg.connect(url, row_factory=dict_row)
+def _get_pool() -> ConnectionPool:
+    """Пул создаётся при первом обращении, а не при импорте: без DATABASE_URL модуль должен грузиться."""
+    global _pool
+    if _pool is None:
+        with _pool_lock:
+            if _pool is None:
+                url = os.environ.get("DATABASE_URL")
+                if not url:
+                    raise RuntimeError("Не задана переменная окружения DATABASE_URL (строка подключения Supabase)")
+                _pool = ConnectionPool(
+                    url,
+                    min_size=POOL_MIN_SIZE,
+                    max_size=POOL_MAX_SIZE,
+                    kwargs={"row_factory": dict_row},
+                    open=True,
+                )
+    return _pool
+
+
+def get_connection():
+    """Соединение из пула. with: commit при успехе, rollback при ошибке, соединение возвращается в пул."""
+    return _get_pool().connection()
 
 
 def init_db() -> None:
