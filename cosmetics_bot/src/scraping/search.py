@@ -16,6 +16,7 @@ from urllib.parse import quote_plus
 from playwright.async_api import Browser, BrowserContext, Page
 from playwright.async_api import TimeoutError as PWTimeout
 
+from cosmetics_bot.src.core import db as cache_db
 from cosmetics_bot.src.core.models import Candidate, Store
 from cosmetics_bot.src.core.utils import (
     CARDS_PER_STORE,
@@ -36,6 +37,8 @@ SEARCH_CONCURRENCY = 3          # одновременно открытых ма
 SEARCH_CACHE_TTL = 60 * 60          # сек, свежая выдача: отдаём без обращения к магазинам
 SEARCH_CACHE_STALE = 6 * 60 * 60    # сек, старая выдача: отдаём сразу и обновляем в фоне
 SEARCH_CACHE_MAX = 1000             # максимум запросов в кэше; самые давние вытесняются
+# Кэш в Postgres (таблица search_cache): переживает деплой. Включается SEARCH_CACHE_DB=1 в окружении.
+SEARCH_CACHE_DB = os.getenv("SEARCH_CACHE_DB") == "1"
 GOTO_TIMEOUT_MS = 20_000
 MAX_LOAD_ATTEMPTS = 2
 BLOCK_MARKERS = ("страница недоступна",)
@@ -347,9 +350,75 @@ def _purge_expired(now: float) -> None:
         del _search_cache[key]
 
 
+def _to_payload(cands: list[Candidate]) -> list[dict]:
+    """Кандидат → словарь для Postgres. Магазин хранится именем, hay — списком строк."""
+    return [
+        {
+            "store": c.store.name, "brand": c.brand, "name": c.name, "type_": c.type_,
+            "label": c.label, "url": c.url, "image": c.image, "rating": c.rating,
+            "reviews": c.reviews, "list_price": c.list_price, "price_prefix": c.price_prefix,
+            "pos": c.pos, "ratio": c.ratio, "list_price_native": c.list_price_native,
+            "restricted": c.restricted, "hay": list(c.hay),
+        }
+        for c in cands
+    ]
+
+
+def _from_payload(items: list[dict]) -> list[Candidate] | None:
+    """Словарь → кандидат. None, если какого-то магазина уже нет в STORES: такую запись не используем."""
+    from cosmetics_bot.src.scraping.stores import find_store
+
+    out = []
+    for d in items:
+        store = find_store(d["store"])
+        if store is None:
+            return None
+        out.append(Candidate(
+            store=store, brand=d["brand"], name=d["name"], type_=d["type_"], label=d["label"],
+            url=d["url"], image=d["image"], rating=d["rating"], reviews=d["reviews"],
+            list_price=d["list_price"], price_prefix=d["price_prefix"], pos=d["pos"],
+            ratio=d["ratio"], list_price_native=d["list_price_native"], restricted=d["restricted"],
+            hay=tuple(d["hay"]),
+        ))
+    return out
+
+
+def _load_from_db(key: str) -> tuple[float, list[Candidate], list[str]] | None:
+    """Запись из Postgres в память. Ошибка базы — не ошибка поиска: просто промах."""
+    try:
+        row = cache_db.search_cache_load(key)
+        if row is None:
+            return None
+        age = time.time() - row["saved_at"]
+        if age > SEARCH_CACHE_STALE:
+            return None
+        cands = _from_payload(row["payload"])
+        if cands is None:
+            return None
+        entry = (time.monotonic() - age, cands, list(row["unavailable"]))
+    except Exception as e:
+        logging.error(f"[кэш] чтение из базы не удалось: {e!r}")
+        return None
+    _search_cache[key] = entry
+    _search_cache.move_to_end(key)
+    while len(_search_cache) > SEARCH_CACHE_MAX:
+        _search_cache.popitem(last=False)
+    return entry
+
+
+def _save_to_db(key: str, saved_at_wall: float, cands: list[Candidate], unavailable: list[str]) -> None:
+    try:
+        cache_db.search_cache_save(key, saved_at_wall, _to_payload(cands), unavailable)
+        cache_db.search_cache_purge(time.time() - SEARCH_CACHE_STALE)
+    except Exception as e:
+        logging.error(f"[кэш] запись в базу не удалась: {e!r}")
+
+
 def _lookup(query: str, max_age: float) -> tuple[list[Candidate], list[str]] | None:
     key = _cache_key(query)
     hit = _search_cache.get(key)
+    if hit is None and SEARCH_CACHE_DB:
+        hit = _load_from_db(key)
     if hit is None:
         return None
     saved_at, cands, unavailable = hit
@@ -382,6 +451,8 @@ def search_cache_set(query: str, cands: list[Candidate], unavailable: list[str])
     _search_cache.move_to_end(key)
     while len(_search_cache) > SEARCH_CACHE_MAX:
         _search_cache.popitem(last=False)
+    if SEARCH_CACHE_DB:
+        _save_to_db(key, time.time(), cands, unavailable)
 
 
 async def _refresh(query: str, groups: list[list[str]]) -> None:

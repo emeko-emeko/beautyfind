@@ -10,6 +10,7 @@ import time
 from typing import Optional, List, Dict, Any
 
 from psycopg.rows import dict_row
+from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 
 POOL_MIN_SIZE = 1
@@ -199,3 +200,34 @@ def get_watches(chat_id: int) -> List[Dict]:
     with get_connection() as conn:
         rows = conn.execute("SELECT * FROM watches WHERE chat_id = %s", (chat_id,)).fetchall()
         return [dict(r) for r in rows]
+
+
+# Кэш выдачи поиска (таблица search_cache, миграция cosmetics_bot/migrations/001_search_cache.sql).
+# saved_at — время записи по часам (time.time()), а не монотонные часы: переживает перезапуск процесса.
+
+def search_cache_load(key: str) -> Optional[Dict[str, Any]]:
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT saved_at, payload, unavailable FROM search_cache WHERE key = %s", (key,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def search_cache_save(key: str, saved_at: float, payload: list, unavailable: list) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO search_cache (key, saved_at, payload, unavailable)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (key) DO UPDATE SET
+                saved_at = EXCLUDED.saved_at,
+                payload = EXCLUDED.payload,
+                unavailable = EXCLUDED.unavailable
+            """,
+            (key, saved_at, Jsonb(payload), Jsonb(unavailable)),
+        )
+
+
+def search_cache_purge(older_than: float) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM search_cache WHERE saved_at < %s", (older_than,))

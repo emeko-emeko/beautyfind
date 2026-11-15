@@ -243,3 +243,19 @@
 - **Не сделано:** шаг 5 (постоянный кэш в Postgres) и шаг 6 (`SEARCH_CONCURRENCY`) ещё не подтверждены владельцем.
 - **Кто решил:** владелец.
 - **Статус:** принято — ждёт проверки логов Railway после деплоя.
+
+### 032 — Кэш выдачи в Postgres (шаг 5 плана)
+- **Что:**
+  - В Supabase (проект `aqlbpakvqkvlbcztbbgg`) миграцией `create_search_cache` создана таблица `public.search_cache` (`key` text PK, `saved_at` double precision, `payload` jsonb, `unavailable` jsonb), индекс по `saved_at`, RLS включён (как у `price_cache`, `watches`, `favorites`; политик для anon нет). SQL лежит в `cosmetics_bot/migrations/001_search_cache.sql`.
+  - `cosmetics_bot/src/core/db.py`: `search_cache_load`, `search_cache_save`, `search_cache_purge`.
+  - `cosmetics_bot/src/scraping/search.py`: память остаётся первым уровнем; при промахе в памяти выдача читается из базы (`_load_from_db`), запись идёт в память и в базу (`_save_to_db`), старые строки старше 6 ч удаляются при каждой записи. Ошибка базы не ломает поиск: при чтении это промах, при записи только лог. Запись магазина хранится по имени, при неизвестном магазине строка не используется.
+  - Персистентность включается переменной окружения `SEARCH_CACHE_DB=1`. По умолчанию выключена, чтобы тесты и локальный запуск не писали в боевую базу.
+- **Почему:** владелец подтвердил шаг 5 ("Да, шаг 5"). Кэш в памяти сбрасывался при каждом деплое на Railway, поэтому после деплоя первый поиск каждого запроса шёл 9–40 с.
+- **Где:** Supabase `aqlbpakvqkvlbcztbbgg` (таблица `search_cache`); код `db.py`, `search.py`; тесты `tests/test_optimizations.py` (класс `SearchCacheDbTests`, 8 тестов); `cosmetics_bot/migrations/001_search_cache.sql`.
+- **Проверка:**
+  - `python -m pytest cosmetics_bot/tests -q`: 94 passed, 2 skipped (было 86 passed, 2 skipped). Тесты базу не трогают: функции db подменены.
+  - Живая проверка в Supabase: сохранение, чтение и очистка строки с ключом `__probe__` прошли. Очистка по порогу «сейчас + 1 с» удалила все строки таблицы; других строк на тот момент не было, так как флаг ещё выключен.
+  - `get_advisors` (security): уровень INFO «RLS включён, политик нет» для `search_cache`, так же как у трёх других таблиц. Это ожидаемо для схемы бота.
+- **Не сделано:** флаг `SEARCH_CACHE_DB=1` на Railway ещё не выставлен (см. следующую запись). Шаг 6 (`SEARCH_CONCURRENCY`) не трогался.
+- **Кто решил:** владелец (шаг 5).
+- **Статус:** открыто — ждёт включения флага на Railway и проверки логов после деплоя.

@@ -180,6 +180,91 @@ class SearchCacheFreshnessTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
 
+def _cand(store, name="Крем"):
+    from cosmetics_bot.src.core.models import Candidate
+    from cosmetics_bot.src.core.utils import make_hay
+    return Candidate(
+        store=store, brand="Бренд", name=name, type_="тип", label=name, url=f"{store.base_url}/p",
+        image="img", rating=4.5, reviews=12, list_price=1000, price_prefix="", pos=0,
+        ratio=0.75, list_price_native=None, restricted=False, hay=make_hay(name, "Бренд"),
+    )
+
+
+class SearchCacheDbTests(unittest.TestCase):
+    """Кэш в Postgres. Сама база не нужна: функции db подменены."""
+
+    def setUp(self):
+        import time  # noqa: F401
+        search._search_cache.clear()
+        self.store = make_store("Shop 0")
+        self.patch_stores = patch("cosmetics_bot.src.scraping.stores.STORES", [self.store])
+        self.patch_stores.start()
+        self.patch_db = patch.object(search, "SEARCH_CACHE_DB", True)
+        self.patch_db.start()
+
+    def tearDown(self):
+        self.patch_db.stop()
+        self.patch_stores.stop()
+        search._search_cache.clear()
+
+    def test_payload_round_trip_keeps_candidate(self):
+        cand = _cand(self.store)
+        back = search._from_payload(search._to_payload([cand]))
+        self.assertEqual(back[0].name, cand.name)
+        self.assertEqual(back[0].url, cand.url)
+        self.assertEqual(back[0].ratio, cand.ratio)
+        self.assertEqual(back[0].hay, cand.hay)
+        self.assertIs(back[0].store, self.store)
+
+    def test_fresh_row_in_db_is_returned_and_kept_in_memory(self):
+        import time
+        payload = search._to_payload([_cand(self.store)])
+        row = {"saved_at": time.time() - 60, "payload": payload, "unavailable": []}
+        with patch.object(db, "search_cache_load", return_value=row):
+            got = search_cache_get("Крем")
+        self.assertEqual(got[0][0].name, "Крем")
+        self.assertIn("крем", search._search_cache)
+
+    def test_row_older_than_stale_limit_is_miss(self):
+        import time
+        payload = search._to_payload([_cand(self.store)])
+        row = {"saved_at": time.time() - search.SEARCH_CACHE_STALE - 10, "payload": payload, "unavailable": []}
+        with patch.object(db, "search_cache_load", return_value=row):
+            self.assertIsNone(search.search_cache_get_stale("Крем"))
+
+    def test_row_with_unknown_store_is_miss(self):
+        import time
+        payload = search._to_payload([_cand(self.store)])
+        payload[0]["store"] = "Удалённый магазин"
+        row = {"saved_at": time.time() - 60, "payload": payload, "unavailable": []}
+        with patch.object(db, "search_cache_load", return_value=row):
+            self.assertIsNone(search_cache_get("Крем"))
+
+    def test_db_read_error_is_just_a_miss(self):
+        with patch.object(db, "search_cache_load", side_effect=RuntimeError("база недоступна")):
+            self.assertIsNone(search_cache_get("Крем"))
+
+    def test_set_writes_to_db_and_purges_old_rows(self):
+        save = MagicMock()
+        purge = MagicMock()
+        with patch.object(db, "search_cache_save", save), patch.object(db, "search_cache_purge", purge):
+            search_cache_set("Крем", [_cand(self.store)], [])
+        self.assertEqual(save.call_args.args[0], "крем")
+        self.assertEqual(purge.call_count, 1)
+
+    def test_db_write_error_keeps_memory_cache(self):
+        with patch.object(db, "search_cache_save", side_effect=RuntimeError("база недоступна")), \
+             patch.object(db, "search_cache_purge"):
+            search_cache_set("Крем", [_cand(self.store)], [])  # не должно упасть
+        self.assertEqual(search_cache_get("Крем")[0][0].name, "Крем")
+
+    def test_db_not_used_when_disabled(self):
+        load = MagicMock(return_value=None)
+        with patch.object(search, "SEARCH_CACHE_DB", False), patch.object(db, "search_cache_load", load):
+            self.assertIsNone(search_cache_get("Крем"))
+        load.assert_not_called()
+
+
 class ConcurrencyTests(unittest.TestCase):
     def test_no_more_than_semaphore_limit_run_at_once(self):
         stores = [make_store(f"Shop {i}") for i in range(8)]
