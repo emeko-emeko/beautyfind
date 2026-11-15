@@ -9,3 +9,7 @@ __pycache__/
 
 # Локальные данные SQLite (база теперь в Supabase)
 cosmetics_bot/data/*.db
+
+# Локальные HTML-дампы страниц для тестов (только на диске, в git не отслеживаются)
+code de vie.txt
+viled.txt
