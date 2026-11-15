@@ -50,6 +50,24 @@ class HandleSearchUnavailableTests(unittest.TestCase):
         self.assertEqual(sent, ["😔 К сожалению, по вашему запросу ничего не нашлось."])
 
 
+class NoRelevantCardsTests(unittest.TestCase):
+    """Карточки есть, но ни одна не совпала с запросом: не показывать «Запрос общий» с пустым списком."""
+
+    def test_no_relevant_cards_says_nothing_found(self):
+        from cosmetics_bot.src.core.models import Candidate
+
+        cand = Candidate(store=STORES[0], brand="", name="Крем", type_="", label="",
+                         url="https://example.test/p/2", image="", rating=None, reviews=0,
+                         list_price=1000, price_prefix="", pos=0, ratio=0.0)
+        msg = make_message("le labo santal 33")
+        with patch.object(bot, "browser_ctx", fake_browser_ctx), \
+             patch.object(bot, "collect_all", AsyncMock(return_value=([cand], []))):
+            asyncio.run(bot.handle_search(msg))
+        sent = [c.args[0] for c in msg.answer.await_args_list][1:]
+        self.assertEqual(sent, ["😔 К сожалению, по вашему запросу ничего не нашлось."])
+        self.assertFalse(any("Запрос общий" in m for m in sent))
+
+
 class UnknownCommandTests(unittest.TestCase):
     def test_unknown_command_is_not_searched(self):
         msg = make_message("/foo")

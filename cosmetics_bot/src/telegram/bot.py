@@ -50,6 +50,9 @@ def make_plan(groups_q: list[list[str]], cands: list[Candidate]) -> dict | None:
     confident = max_ratio >= 0.5
     eligible = [c for c in cands if c.ratio >= MIN_RATIO]
     logging.info(f"всего={len(cands)}, после_ratio={len(eligible)}")
+    if not eligible:
+        # Ни одна карточка не совпала с запросом: это «ничего не нашлось», а не общий запрос
+        return None
 
     groups = build_groups(eligible)
     logging.info(f"групп={len(groups)}")
