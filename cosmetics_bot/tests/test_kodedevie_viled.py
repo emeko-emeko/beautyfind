@@ -40,7 +40,7 @@ def _run_detail(handler, html):
 class StoreWiringTests(unittest.TestCase):
     def test_both_stores_use_handlers(self):
         by_name = {s.name: s for s in STORES}
-        self.assertEqual(by_name["Код де ви"].detail, "kodedevie")
+        self.assertEqual(by_name["Code de Vie"].detail, "kodedevie")
         self.assertEqual(by_name["Viled"].detail, "viled")
         self.assertIs(DETAIL_HANDLERS["kodedevie"], detail_kodedevie)
         self.assertIs(DETAIL_HANDLERS["viled"], detail_viled)

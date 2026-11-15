@@ -10,7 +10,7 @@ from cosmetics_bot.src.core.db import get_watches_for_monitor, update_watch_pric
 from cosmetics_bot.src.core.models import Candidate
 from cosmetics_bot.src.core.utils import format_money
 from cosmetics_bot.src.scraping.details import DETAIL_HANDLERS, fetch_detail
-from cosmetics_bot.src.scraping.stores import STORES, browser_ctx
+from cosmetics_bot.src.scraping.stores import STORES, browser_ctx, find_store
 
 CHECK_INTERVAL = 600   # сек между проходами по списку
 PAUSE_BETWEEN = 3      # сек между товарами, чтобы не нагружать магазины
@@ -22,7 +22,7 @@ def store_for_url(url: str):
 
 def is_watch_supported(store_name: str) -> bool:
     """Цену можно перепроверить, только если у магазина есть обработчик страницы товара."""
-    store = next((s for s in STORES if s.name == store_name), None)
+    store = find_store(store_name)
     return bool(store and store.detail in DETAIL_HANDLERS)
 
 

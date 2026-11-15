@@ -27,7 +27,8 @@ STORES = [
         detail_ready=".js-product-detail__price-now",
     ),
     Store(
-        name="Золотое Яблоко",
+        name="Goldapple",
+        aliases=("Золотое Яблоко",),
         base_url="https://goldapple.kz",
         search_url="https://goldapple.kz/catalogsearch/result/?q={query}",
         # Каждый товар в выдаче оборачивается в div[data-scroll-id].
@@ -50,7 +51,8 @@ STORES = [
         detail_ready="[data-test-id='price-info-block']",
     ),
     Store(
-        name="Французский дом",
+        name="French House",
+        aliases=("Французский дом",),
         base_url="https://french-house.kz",
         search_url="https://french-house.kz/search/index.php?q={query}",
         # Бренда в карточке нет: он входит в название товара.
@@ -80,7 +82,8 @@ STORES = [
         detail_ready="[class*='ProductCardSidebar_priceDisplay']",
     ),
     Store(
-        name="Код де ви",
+        name="Code de Vie",
+        aliases=("Код де ви",),
         base_url="https://cdv.kz",
         search_url="https://cdv.kz/women/search?searchQuery={query}",
         # Классы с хешами (например _6hPivq_), поэтому ищем по части имени.
@@ -89,6 +92,8 @@ STORES = [
         name_sel="[class*='_title'] p",
         price="[class*='_currentPriceText']",
         images=["img"],
+        # Без этого сайт не рисует <img> в карточках выдачи (картинки блокируются самим ботом)
+        block_images=False,
         link="a[href^='/item/']",
         detail="kodedevie",
         detail_ready="[class*='_price'] [class*='_current']",
@@ -102,6 +107,7 @@ STORES = [
         name_sel="[class*='_title'] p",
         price="[class*='_currentPriceText']",
         images=["img"],
+        block_images=False,
         link="a[href^='/item/']",
         detail="viled",
         detail_ready="[class*='_price'] [class*='_current']",
@@ -142,6 +148,11 @@ STORES = [
 # Чтобы подключить, заполните search_url и перенесите запись в STORES.
 PENDING_STORES = [
 ]
+
+
+def find_store(name: str) -> Store | None:
+    """Магазин по названию: новому или прежнему (aliases), как записано в старых избранных и отслеживаниях."""
+    return next((s for s in STORES if name == s.name or name in s.aliases), None)
 
 
 _PW = None

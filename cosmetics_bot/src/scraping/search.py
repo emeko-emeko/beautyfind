@@ -108,7 +108,7 @@ async def _block_heavy(route):
         await route.continue_()
 
 
-async def _open_context(browser: Browser) -> BrowserContext:
+async def _open_context(browser: Browser, block_images: bool = True) -> BrowserContext:
     kwargs = dict(
         user_agent=USER_AGENT,
         locale="ru-RU",
@@ -119,7 +119,8 @@ async def _open_context(browser: Browser) -> BrowserContext:
     if STORAGE_STATE and os.path.exists(STORAGE_STATE):
         kwargs["storage_state"] = STORAGE_STATE
     ctx = await browser.new_context(**kwargs)
-    await ctx.route("**/*", _block_heavy)
+    if block_images:
+        await ctx.route("**/*", _block_heavy)
     return ctx
 
 
@@ -222,7 +223,7 @@ async def list_store(
     browser: Browser, store: Store, query: str, groups: list[list[str]]
 ) -> tuple[str, list[Candidate]]:
     """Возвращает (статус магазина, кандидаты). Статус: ok / empty / unavailable."""
-    ctx = await _open_context(browser)
+    ctx = await _open_context(browser, store.block_images)
     try:
         page = await ctx.new_page()
         url = store.search_url.format(query=quote_plus(query))

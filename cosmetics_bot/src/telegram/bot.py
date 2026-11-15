@@ -19,7 +19,7 @@ from cosmetics_bot.src.core.utils import (
     has_specifics,
     MIN_RATIO
 )
-from cosmetics_bot.src.scraping.stores import STORES, browser_ctx
+from cosmetics_bot.src.scraping.stores import STORES, browser_ctx, find_store
 from cosmetics_bot.src.scraping.search import collect_all
 from cosmetics_bot.src.scraping.details import fetch_detail
 from cosmetics_bot.src.ui.formatter import build_caption, render_group, render_member
@@ -195,7 +195,8 @@ async def on_more(cb: CallbackQuery):
 
 
 def store_currency(store_name: str) -> str:
-    return next((s.currency for s in STORES if s.name == store_name), "₸")
+    store = find_store(store_name)
+    return store.currency if store else "₸"
 
 
 def fav_text(f: dict) -> str:
@@ -252,7 +253,7 @@ async def on_fav_refresh(cb: CallbackQuery):
     if not f:
         await cb.answer("Товар уже удалён из избранного.", show_alert=True)
         return
-    store = next((s for s in STORES if s.name == f["store"]), None)
+    store = find_store(f["store"])
     if not store:
         await cb.answer("Магазин не найден.", show_alert=True)
         return

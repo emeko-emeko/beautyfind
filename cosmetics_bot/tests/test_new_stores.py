@@ -123,15 +123,15 @@ class CultBeautyDetailTests(unittest.TestCase):
 class NewStoresParsingTests(unittest.TestCase):
     def test_all_four_defined(self):
         names = {s.name for s in STORES + PENDING_STORES}
-        self.assertTrue({"Код де ви", "Viled", "Space NK", "Cult Beauty"} <= names)
+        self.assertTrue({"Code de Vie", "Viled", "Space NK", "Cult Beauty"} <= names)
 
     def test_connected_stores_have_search_url(self):
-        for name in ("Код де ви", "Viled", "Cult Beauty", "Space NK"):
+        for name in ("Code de Vie", "Viled", "Cult Beauty", "Space NK"):
             store = next(s for s in STORES if s.name == name)
             self.assertIn("{query}", store.search_url)
 
     def test_cdv_card(self):
-        items = _extract(CDV_HTML, _store("Код де ви"))
+        items = _extract(CDV_HTML, _store("Code de Vie"))
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["url"], "https://cdv.kz/item/429384")
         self.assertEqual(items[0]["brand"], "BY TERRY")
