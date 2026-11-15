@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import time
+from collections import OrderedDict
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -33,6 +34,7 @@ SCROLL_STEPS = 4                # сколько раз листать выда�
 SCROLL_WAIT_MS = 1_000          # сколько ждать новые карточки после прокрутки
 SEARCH_CONCURRENCY = 3          # одновременно открытых магазинов (больше — падают вкладки)
 SEARCH_CACHE_TTL = 15 * 60      # сек, сколько храним выдачу по одному запросу
+SEARCH_CACHE_MAX = 200          # максимум запросов в кэше; самые давние вытесняются
 GOTO_TIMEOUT_MS = 20_000
 MAX_LOAD_ATTEMPTS = 2
 BLOCK_MARKERS = ("страница недоступна",)
@@ -286,21 +288,30 @@ async def list_store(
 
 # Кэш выдачи по запросу в памяти процесса: повтор того же запроса не открывает магазины заново.
 # Ключ — текст запроса без лишних пробелов (группы для релевантности выводятся из него же).
-_search_cache: dict[str, tuple[float, list[Candidate], list[str]]] = {}
+# Ограничен по размеру (SEARCH_CACHE_MAX) и по времени (SEARCH_CACHE_TTL), иначе память растёт
+# с каждым новым запросом.
+_search_cache: "OrderedDict[str, tuple[float, list[Candidate], list[str]]]" = OrderedDict()
 
 
 def _cache_key(query: str) -> str:
     return " ".join(query.split())
 
 
+def _purge_expired(now: float) -> None:
+    for key in [k for k, (saved_at, _, _) in _search_cache.items() if now - saved_at > SEARCH_CACHE_TTL]:
+        del _search_cache[key]
+
+
 def search_cache_get(query: str) -> tuple[list[Candidate], list[str]] | None:
-    hit = _search_cache.get(_cache_key(query))
+    key = _cache_key(query)
+    hit = _search_cache.get(key)
     if hit is None:
         return None
     saved_at, cands, unavailable = hit
     if time.monotonic() - saved_at > SEARCH_CACHE_TTL:
-        _search_cache.pop(_cache_key(query), None)
+        _search_cache.pop(key, None)
         return None
+    _search_cache.move_to_end(key)  # недавно использованный запрос вытесняется последним
     return cands, unavailable
 
 
@@ -310,7 +321,13 @@ def search_cache_set(query: str, cands: list[Candidate], unavailable: list[str])
 
     if len(unavailable) >= len(STORES):
         return
-    _search_cache[_cache_key(query)] = (time.monotonic(), cands, unavailable)
+    now = time.monotonic()
+    _purge_expired(now)
+    key = _cache_key(query)
+    _search_cache[key] = (now, cands, unavailable)
+    _search_cache.move_to_end(key)
+    while len(_search_cache) > SEARCH_CACHE_MAX:
+        _search_cache.popitem(last=False)
 
 
 async def collect_all(

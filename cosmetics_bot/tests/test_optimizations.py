@@ -77,6 +77,44 @@ class SearchCacheTests(unittest.TestCase):
             self.assertIsNone(search_cache_get("q"))
 
 
+class SearchCacheBoundsTests(unittest.TestCase):
+    def setUp(self):
+        search._search_cache.clear()
+        self.stores = [make_store(f"Shop {i}") for i in range(3)]
+        self.patch_stores = patch("cosmetics_bot.src.scraping.stores.STORES", self.stores)
+        self.patch_stores.start()
+
+    def tearDown(self):
+        self.patch_stores.stop()
+        search._search_cache.clear()
+
+    def test_size_is_capped_and_oldest_evicted(self):
+        with patch.object(search, "SEARCH_CACHE_MAX", 5):
+            for i in range(8):
+                search_cache_set(f"q{i}", [i], [])
+            self.assertEqual(len(search._search_cache), 5)
+            self.assertIsNone(search_cache_get("q0"))
+            self.assertIsNotNone(search_cache_get("q7"))
+
+    def test_recently_read_entry_survives_eviction(self):
+        with patch.object(search, "SEARCH_CACHE_MAX", 3):
+            search_cache_set("a", [1], [])
+            search_cache_set("b", [2], [])
+            search_cache_set("c", [3], [])
+            search_cache_get("a")          # «a» стала самой свежей
+            search_cache_set("d", [4], [])  # вытесняется «b»
+            self.assertIsNotNone(search_cache_get("a"))
+            self.assertIsNone(search_cache_get("b"))
+
+    def test_expired_entries_are_purged_on_set(self):
+        import time
+        # Просроченная запись: другой запрос её не трогает, но set должен удалить её сам
+        search._search_cache["old"] = (time.monotonic() - search.SEARCH_CACHE_TTL - 10, [0], [])
+        search_cache_set("new", [1], [])
+        self.assertNotIn("old", search._search_cache)
+        self.assertIn("new", search._search_cache)
+
+
 class ConcurrencyTests(unittest.TestCase):
     def test_no_more_than_semaphore_limit_run_at_once(self):
         stores = [make_store(f"Shop {i}") for i in range(8)]
