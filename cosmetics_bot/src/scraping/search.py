@@ -30,16 +30,19 @@ from cosmetics_bot.src.scraping.stores import USER_AGENT
 
 DEBUG = os.getenv("SCRAPER_DEBUG") == "1"
 STORAGE_STATE = os.getenv("GA_STORAGE_STATE")  # файл с куками (адрес доставки)
-CARD_WAIT_MS = 12_000
+CARD_WAIT_MS = 6_000            # сколько ждать карточки или признак пустой выдачи (было 12 с)
 SCROLL_STEPS = 4                # сколько раз листать выдачу (ленивая подгрузка карточек)
 SCROLL_WAIT_MS = 1_000          # сколько ждать новые карточки после прокрутки
 SEARCH_CONCURRENCY = 3          # одновременно открытых магазинов (больше — падают вкладки)
+# Бюджет поиска для пользователя, сек. По истечении отдаём то, что уже собрано; остальные магазины
+# доснимаются в фоне и кладут полную выдачу в кэш (запись 035).
+SEARCH_DEADLINE_S = 10
 SEARCH_CACHE_TTL = 60 * 60          # сек, свежая выдача: отдаём без обращения к магазинам
 SEARCH_CACHE_STALE = 6 * 60 * 60    # сек, старая выдача: отдаём сразу и обновляем в фоне
 SEARCH_CACHE_MAX = 1000             # максимум запросов в кэше; самые давние вытесняются
 # Кэш в Postgres (таблица search_cache): переживает деплой. Включается SEARCH_CACHE_DB=1 в окружении.
 SEARCH_CACHE_DB = os.getenv("SEARCH_CACHE_DB") == "1"
-GOTO_TIMEOUT_MS = 20_000
+GOTO_TIMEOUT_MS = 10_000        # было 20 с
 MAX_LOAD_ATTEMPTS = 2
 BLOCK_MARKERS = ("страница недоступна",)
 # Фразы пустой выдачи на сайтах: Viled — «товаров не найдено», Space NK — «couldn't find results»
@@ -237,6 +240,10 @@ async def _load_listing(page: Page, store: Store, url: str) -> str:
             f"[{store.name}] попытка {attempt}: карточек нет "
             f"(заглушка сайта: {blocked}; {await _page_diag(page, response)})"
         )
+        if getattr(response, "status", None) == 403:
+            # 403 — блокировка (Cloudflare): повтор тем же браузером ничего не даст, экономим 10–20 с
+            logging.warning(f"[{store.name}] HTTP 403, повтор не делаем")
+            return STATUS_UNAVAILABLE
         await page.wait_for_timeout(1500 * attempt)
     return STATUS_UNAVAILABLE
 
@@ -461,7 +468,8 @@ async def _refresh(query: str, groups: list[list[str]]) -> None:
     key = _cache_key(query)
     try:
         async with browser_ctx() as browser:
-            cands, unavailable = await collect_all(browser, query, groups)
+            # Фоновое обновление ждёт всех магазинов: бюджет поиска сюда не относится
+            cands, unavailable = await collect_all(browser, query, groups, deadline=None)
         search_cache_set(query, cands, unavailable)
         logging.info(f"[кэш] выдача обновлена в фоне: «{query}», карточек {len(cands)}")
     except Exception as e:
@@ -482,10 +490,23 @@ def schedule_refresh(query: str, groups: list[list[str]]) -> None:
     task.add_done_callback(_refresh_tasks.discard)
 
 
+def _summarize(stores, results) -> tuple[list[Candidate], list[str]]:
+    cands = [c for _, r in results for c in r]
+    unavailable = [
+        s.name for s, (status, _) in zip(stores, results) if status == STATUS_UNAVAILABLE
+    ]
+    return cands, unavailable
+
+
 async def collect_all(
-    browser: Browser, query: str, groups: list[list[str]]
+    browser: Browser, query: str, groups: list[list[str]], deadline: float | None = SEARCH_DEADLINE_S
 ) -> tuple[list[Candidate], list[str]]:
-    """Возвращает (кандидаты всех магазинов, названия магазинов, которые не ответили)."""
+    """Возвращает (кандидаты всех магазинов, названия магазинов, которые не ответили).
+
+    С deadline (сек): ждём не дольше него. Магазины, не успевшие к сроку, в ответе считаются
+    не ответившими, а их сбор продолжается в фоне; когда все закончатся, полная выдача
+    попадает в кэш (search_cache_set). deadline=None — ждать всех (как раньше, для фонового обновления).
+    """
     from cosmetics_bot.src.scraping.stores import STORES
 
     # Семафор: таймаут магазина считается только когда он уже работает, а не пока ждёт очереди
@@ -505,9 +526,29 @@ async def collect_all(
                 logging.error(f"[{store.name}] ошибка: {e!r}")
                 return STATUS_UNAVAILABLE, []
 
-    results = await asyncio.gather(*(run(s) for s in STORES))
-    cands = [c for _, r in results for c in r]
-    unavailable = [
-        s.name for s, (status, _) in zip(STORES, results) if status == STATUS_UNAVAILABLE
-    ]
-    return cands, unavailable
+    tasks = [asyncio.ensure_future(run(s)) for s in STORES]
+    if deadline is None:
+        results = await asyncio.gather(*tasks)
+        return _summarize(STORES, results)
+
+    done, pending = await asyncio.wait(tasks, timeout=deadline)
+    results = [t.result() if t in done else (STATUS_UNAVAILABLE, []) for t in tasks]
+    if pending:
+        logging.info(
+            f"[поиск] к сроку {deadline} с не успели: {len(pending)} из {len(tasks)}, доснимаем в фоне"
+        )
+        bg = asyncio.create_task(_finish_in_background(query, STORES, tasks))
+        _refresh_tasks.add(bg)
+        bg.add_done_callback(_refresh_tasks.discard)
+    return _summarize(STORES, results)
+
+
+async def _finish_in_background(query: str, stores, tasks) -> None:
+    """Дожидается всех магазинов и кладёт полную выдачу в кэш (если никто не ответил с ошибкой)."""
+    try:
+        results = await asyncio.gather(*tasks)
+        cands, unavailable = _summarize(stores, results)
+        search_cache_set(query, cands, unavailable)
+        logging.info(f"[кэш] полная выдача доснята: «{query}», карточек {len(cands)}")
+    except Exception as e:
+        logging.error(f"[кэш] доснятие «{query}» не удалось: {e!r}")

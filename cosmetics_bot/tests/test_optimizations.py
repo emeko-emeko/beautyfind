@@ -158,7 +158,7 @@ class SearchCacheFreshnessTests(unittest.TestCase):
         self.assertEqual(search_cache_get("крем для рук"), (["c1"], []))
 
     def test_refresh_stores_new_result_and_clears_flag(self):
-        async def fake_collect(browser, query, groups):
+        async def fake_collect(browser, query, groups, deadline=None):
             return ["new"], []
 
         with patch.object(search, "collect_all", fake_collect), \
@@ -170,7 +170,7 @@ class SearchCacheFreshnessTests(unittest.TestCase):
     def test_repeated_schedule_starts_one_refresh(self):
         calls = []
 
-        async def fake_collect(browser, query, groups):
+        async def fake_collect(browser, query, groups, deadline=None):
             calls.append(query)
             await asyncio.sleep(0.01)
             return ["new"], []
