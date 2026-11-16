@@ -119,7 +119,7 @@ class Forbidden403Tests(unittest.TestCase):
 
 class ConstantsTests(unittest.TestCase):
     def test_budget_and_waits(self):
-        self.assertEqual(search.SEARCH_DEADLINE_S, 10)
+        self.assertEqual(search.SEARCH_DEADLINE_S, 14)
         self.assertEqual(search.CARD_WAIT_MS, 6_000)
         self.assertEqual(search.GOTO_TIMEOUT_MS, 10_000)
 
