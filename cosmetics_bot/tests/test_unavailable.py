@@ -38,6 +38,18 @@ def make_store(name: str) -> Store:
     )
 
 
+def _fc(url: str):
+    """Фиктивный кандидат: collect_all объединяет выдачу по url."""
+    from types import SimpleNamespace
+    return SimpleNamespace(url=url)
+
+
+def _fc(url: str):
+    """Фиктивный кандидат: collect_all объединяет выдачу по url."""
+    from types import SimpleNamespace
+    return SimpleNamespace(url=url)
+
+
 def make_page(body_text: str, wait_state: str | None) -> MagicMock:
     """wait_state — что вернёт ожидание выдачи в браузере: «ok», «empty» или None (таймаут).
     Ожидание теперь идёт внутри страницы (wait_for_function), поэтому мокаем его результат."""
@@ -136,20 +148,20 @@ class CollectAllStatusTests(unittest.TestCase):
         async def fake(browser, store, query, groups):
             if store is a:
                 return STATUS_UNAVAILABLE, []
-            return STATUS_OK, ["cand-b"]
+            return STATUS_OK, [_fc("cand-b")]
 
         cands, unavailable = self.run_collect(fake, [a, b])
-        self.assertEqual(cands, ["cand-b"])
+        self.assertEqual([c.url for c in cands], ["cand-b"])
         self.assertEqual(unavailable, ["Mon Amie"])
 
     def test_empty_store_is_not_reported_as_unavailable(self):
         a, b = make_store("Mon Amie"), make_store("Золотое Яблоко")
 
         async def fake(browser, store, query, groups):
-            return (STATUS_EMPTY, []) if store is a else (STATUS_OK, ["cand-b"])
+            return (STATUS_EMPTY, []) if store is a else (STATUS_OK, [_fc("cand-b")])
 
         cands, unavailable = self.run_collect(fake, [a, b])
-        self.assertEqual(cands, ["cand-b"])
+        self.assertEqual([c.url for c in cands], ["cand-b"])
         self.assertEqual(unavailable, [])
 
     def test_exception_in_store_is_unavailable(self):

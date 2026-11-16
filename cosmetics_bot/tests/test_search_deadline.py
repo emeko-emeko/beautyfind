@@ -34,6 +34,12 @@ def make_store(name: str) -> Store:
     )
 
 
+def _fc(url: str):
+    """Фиктивный кандидат: collect_all объединяет выдачу по url."""
+    from types import SimpleNamespace
+    return SimpleNamespace(url=url)
+
+
 class DeadlineTests(unittest.TestCase):
     def test_returns_done_stores_at_deadline_and_completes_cache_in_background(self):
         fast, slow = make_store("Fast"), make_store("Slow")
@@ -41,8 +47,8 @@ class DeadlineTests(unittest.TestCase):
         async def fake(browser, store, query, groups):
             if store is slow:
                 await asyncio.sleep(0.3)
-                return STATUS_OK, ["cand-slow"]
-            return STATUS_OK, ["cand-fast"]
+                return STATUS_OK, [_fc("cand-slow")]
+            return STATUS_OK, [_fc("cand-fast")]
 
         async def scenario():
             with patch.object(search, "list_store", side_effect=fake), \
@@ -51,16 +57,17 @@ class DeadlineTests(unittest.TestCase):
                     MagicMock(), "крем", [], deadline=0.1
                 )
                 # К сроку: быстрый магазин в выдаче, медленный — «не ответил»
-                self.assertEqual(cands, ["cand-fast"])
+                self.assertEqual([c.url for c in cands], ["cand-fast"])
                 self.assertEqual(unavailable, ["Slow"])
                 # Пока медленный не закончил, полная выдача в кэш не попадает
                 cache_set.assert_not_called()
-                await asyncio.sleep(0.5)
+                # Медленный магазин опрашивается по двум написаниям: 2 × 0.3 с
+                await asyncio.sleep(1.0)
                 # После доснятия полная выдача попала в кэш (без недоступных)
                 cache_set.assert_called_once()
                 args = cache_set.call_args.args
                 self.assertEqual(args[0], "крем")
-                self.assertEqual(sorted(args[1]), ["cand-fast", "cand-slow"])
+                self.assertEqual(sorted(c.url for c in args[1]), ["cand-fast", "cand-slow"])
                 self.assertEqual(args[2], [])
 
         with patch("cosmetics_bot.src.scraping.stores.STORES", [fast, slow]):
@@ -70,12 +77,12 @@ class DeadlineTests(unittest.TestCase):
         a, b = make_store("A"), make_store("B")
 
         async def fake(browser, store, query, groups):
-            return STATUS_OK, [store.name]
+            return STATUS_OK, [_fc(store.name)]
 
         with patch("cosmetics_bot.src.scraping.stores.STORES", [a, b]), \
              patch.object(search, "list_store", side_effect=fake):
             cands, unavailable = asyncio.run(collect_all(MagicMock(), "крем", [], deadline=5))
-        self.assertEqual(sorted(cands), ["A", "B"])
+        self.assertEqual(sorted(c.url for c in cands), ["A", "B"])
         self.assertEqual(unavailable, [])
 
     def test_no_deadline_waits_for_all(self):
@@ -83,12 +90,12 @@ class DeadlineTests(unittest.TestCase):
 
         async def fake(browser, store, query, groups):
             await asyncio.sleep(0.2)
-            return STATUS_OK, ["x"]
+            return STATUS_OK, [_fc("x")]
 
         with patch("cosmetics_bot.src.scraping.stores.STORES", [a]), \
              patch.object(search, "list_store", side_effect=fake):
             cands, unavailable = asyncio.run(collect_all(MagicMock(), "крем", [], deadline=None))
-        self.assertEqual(cands, ["x"])
+        self.assertEqual([c.url for c in cands], ["x"])
         self.assertEqual(unavailable, [])
 
 

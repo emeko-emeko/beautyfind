@@ -178,6 +178,60 @@ def parse_query(query: str) -> Tuple[List[List[str]], Optional[float]]:
     return groups, want_volume
 
 
+# Пары «русское → английское» для слов, которые транслитерация не передаёт.
+# Нужны там, где магазины по разным написаниям дают разные результаты (телескопик → Telescopic).
+# Пополняется вручную: добавляйте слова, по которым выдача расходится.
+TERM_PAIRS: List[Tuple[str, str]] = [
+    ("телескопик", "telescopic"),
+    ("тушь", "mascara"),
+    ("крем", "cream"),
+    ("сыворотка", "serum"),
+    ("маска", "mask"),
+    ("помада", "lipstick"),
+    ("духи", "perfume"),
+    ("шампунь", "shampoo"),
+]
+
+
+def _is_cyr(s: str) -> bool:
+    return re.search(r"[а-я]", s) is not None
+
+
+def _ru_en_maps() -> Tuple[dict, dict]:
+    """Однословные соответствия: кириллица → латиница и обратно (из TERM_PAIRS и SYNONYMS)."""
+    ru_en: dict = {}
+    en_ru: dict = {}
+    for ru, en in TERM_PAIRS:
+        ru_en.setdefault(ru, en)
+        en_ru.setdefault(en, ru)
+    for group in SYNONYMS:
+        en_alts = [a for a in group if not _is_cyr(a) and " " not in a and len(a) >= 4]
+        ru_alts = [a for a in group if _is_cyr(a) and " " not in a]
+        if en_alts and ru_alts:
+            for ru in ru_alts:
+                ru_en.setdefault(ru, en_alts[0])
+            en_ru.setdefault(en_alts[0], ru_alts[0])
+    return ru_en, en_ru
+
+
+def search_variants(query: str) -> List[str]:
+    """Написания запроса для магазинов: исходное и его пара (кириллица ↔ латиница).
+
+    Кириллица → латиница: по словарю, для остальных слов транслит.
+    Латиница → кириллица: только по словарю (обратного транслита нет).
+    Одинаковые написания не повторяются. Пустой запрос → пустой список.
+    """
+    base = " ".join(norm(query).split())
+    if not base:
+        return []
+    ru_en, en_ru = _ru_en_maps()
+    if _is_cyr(base):
+        other = " ".join(ru_en.get(t, translit(t) if _is_cyr(t) else t) for t in base.split())
+    else:
+        other = " ".join(en_ru.get(t, t) for t in base.split())
+    return [base] if other == base else [base, other]
+
+
 def relevance(groups: List[List[str]], hay: Tuple[str, str, str, str]) -> float:
     if not groups:
         return 0.0

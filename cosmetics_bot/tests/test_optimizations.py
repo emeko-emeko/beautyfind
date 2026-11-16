@@ -229,7 +229,7 @@ class SearchCacheDbTests(unittest.TestCase):
         with patch.object(db, "search_cache_load", return_value=row):
             got = search_cache_get("Крем")
         self.assertEqual(got[0][0].name, "Крем")
-        self.assertIn("крем", search._search_cache)
+        self.assertIn("cream|крем", search._search_cache)  # ключ общий для кириллицы и латиницы (запись 037)
 
     def test_row_older_than_stale_limit_is_miss(self):
         import time
@@ -255,7 +255,7 @@ class SearchCacheDbTests(unittest.TestCase):
         purge = MagicMock()
         with patch.object(db, "search_cache_save", save), patch.object(db, "search_cache_purge", purge):
             search_cache_set("Крем", [_cand(self.store)], [])
-        self.assertEqual(save.call_args.args[0], "крем")
+        self.assertEqual(save.call_args.args[0], "cream|крем")
         self.assertEqual(purge.call_count, 1)
 
     def test_db_write_error_keeps_memory_cache(self):

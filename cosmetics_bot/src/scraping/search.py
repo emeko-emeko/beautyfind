@@ -24,6 +24,7 @@ from cosmetics_bot.src.core.utils import (
     digits_int,
     make_hay,
     relevance,
+    search_variants,
     to_float,
 )
 from cosmetics_bot.src.scraping.stores import USER_AGENT
@@ -349,7 +350,8 @@ _refresh_tasks: set = set()       # ссылки на фоновые задач�
 
 
 def _cache_key(query: str) -> str:
-    return " ".join(query.split()).lower().replace("ё", "е")
+    """Ключ общий для обоих написаний (кириллица и латиница): выдача по ним одна (запись 037)."""
+    return "|".join(sorted(set(search_variants(query))))
 
 
 def _purge_expired(now: float) -> None:
@@ -490,6 +492,29 @@ def schedule_refresh(query: str, groups: list[list[str]]) -> None:
     task.add_done_callback(_refresh_tasks.discard)
 
 
+async def _list_store_variants(
+    browser: Browser, store: Store, variants: list[str], groups: list[list[str]]
+) -> tuple[str, list[Candidate]]:
+    """Собирает выдачу магазина по каждому написанию запроса и объединяет по URL.
+    Статус: ok, если хоть одно написание дало карточки; unavailable, если магазин не ответил
+    ни на одно написание (и не было ok); иначе empty."""
+    statuses: list[str] = []
+    found: list[Candidate] = []
+    seen: set[str] = set()
+    for variant in variants:
+        status, cands = await list_store(browser, store, variant, groups)
+        statuses.append(status)
+        for c in cands:
+            if c.url not in seen:
+                seen.add(c.url)
+                found.append(c)
+    if STATUS_OK in statuses:
+        return STATUS_OK, found
+    if STATUS_UNAVAILABLE in statuses:
+        return STATUS_UNAVAILABLE, []
+    return STATUS_EMPTY, []
+
+
 def _summarize(stores, results) -> tuple[list[Candidate], list[str]]:
     cands = [c for _, r in results for c in r]
     unavailable = [
@@ -512,11 +537,13 @@ async def collect_all(
     # Семафор: таймаут магазина считается только когда он уже работает, а не пока ждёт очереди
     sem = asyncio.Semaphore(SEARCH_CONCURRENCY)
 
+    variants = search_variants(query) or [query]
+
     async def run(store: Store) -> tuple[str, list[Candidate]]:
         async with sem:
             try:
                 return await asyncio.wait_for(
-                    list_store(browser, store, query, groups),
+                    _list_store_variants(browser, store, variants, groups),
                     timeout=STORE_TIMEOUT,
                 )
             except asyncio.TimeoutError:
