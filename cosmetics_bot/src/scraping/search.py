@@ -522,6 +522,22 @@ async def _list_store_variants(
     return STATUS_EMPTY, []
 
 
+_tab_sem: asyncio.Semaphore | None = None
+_tab_sem_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _tab_slots() -> asyncio.Semaphore:
+    """Общий на весь процесс лимит одновременно открытых вкладок поиска (запись 041).
+    Обычный поиск и фоновое доснятие делят одни и те же SEARCH_CONCURRENCY слотов.
+    Семафор привязан к текущему event loop: при смене loop (тесты) создаётся новый."""
+    global _tab_sem, _tab_sem_loop
+    loop = asyncio.get_running_loop()
+    if _tab_sem is None or _tab_sem_loop is not loop:
+        _tab_sem = asyncio.Semaphore(SEARCH_CONCURRENCY)
+        _tab_sem_loop = loop
+    return _tab_sem
+
+
 def _summarize(stores, results) -> tuple[list[Candidate], list[str]]:
     cands = [c for _, r in results for c in r]
     unavailable = [
@@ -541,13 +557,11 @@ async def collect_all(
     """
     from cosmetics_bot.src.scraping.stores import STORES
 
-    # Семафор: таймаут магазина считается только когда он уже работает, а не пока ждёт очереди
-    sem = asyncio.Semaphore(SEARCH_CONCURRENCY)
-
     variants = search_variants(query) or [query]
 
     async def run(store: Store) -> tuple[str, list[Candidate]]:
-        async with sem:
+        # Общий на процесс семафор: таймаут магазина считается, только когда он уже работает
+        async with _tab_slots():
             try:
                 return await asyncio.wait_for(
                     _list_store_variants(browser, store, variants, groups),

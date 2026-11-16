@@ -117,6 +117,34 @@ class Forbidden403Tests(unittest.TestCase):
         self.assertLess(1, MAX_LOAD_ATTEMPTS)  # без 403 повтор по-прежнему есть
 
 
+class SharedTabLimitTests(unittest.TestCase):
+    def test_two_concurrent_collections_share_one_tab_limit(self):
+        # Запись 041: фон и обычный поиск вместе не открывают больше SEARCH_CONCURRENCY вкладок
+        stores = [make_store(f"Shop {i}") for i in range(6)]
+        running = 0
+        peak = 0
+
+        async def fake(browser, store, query, groups):
+            nonlocal running, peak
+            running += 1
+            peak = max(peak, running)
+            await asyncio.sleep(0.02)
+            running -= 1
+            return STATUS_OK, []
+
+        async def main():
+            with patch.object(search, "list_store", side_effect=fake):
+                await asyncio.gather(
+                    collect_all(MagicMock(), "крем", [], deadline=None),
+                    collect_all(MagicMock(), "помада", [], deadline=None),
+                )
+
+        with patch("cosmetics_bot.src.scraping.stores.STORES", stores):
+            asyncio.run(main())
+        self.assertLessEqual(peak, search.SEARCH_CONCURRENCY)
+        self.assertEqual(peak, search.SEARCH_CONCURRENCY)
+
+
 class ConstantsTests(unittest.TestCase):
     def test_budget_and_waits(self):
         self.assertEqual(search.SEARCH_DEADLINE_S, 14)
