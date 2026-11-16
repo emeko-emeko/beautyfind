@@ -38,6 +38,9 @@ SEARCH_CONCURRENCY = 3          # одновременно открытых ма
 # Бюджет поиска для пользователя, сек. По истечении отдаём то, что уже собрано; остальные магазины
 # доснимаются в фоне и кладут полную выдачу в кэш (запись 035).
 SEARCH_DEADLINE_S = 14  # было 10 с; ниже цели <15 с (запись 039)
+# Второе написание запроса запрашиваем, только если первое дало меньше карточек (запись 040).
+# 1 = только если первое пусто или магазин не ответил. Больше — полнее выдача, но дольше сбор.
+SECOND_SPELLING_IF_FEWER_THAN = 1
 SEARCH_CACHE_TTL = 60 * 60          # сек, свежая выдача: отдаём без обращения к магазинам
 SEARCH_CACHE_STALE = 6 * 60 * 60    # сек, старая выдача: отдаём сразу и обновляем в фоне
 SEARCH_CACHE_MAX = 1000             # максимум запросов в кэше; самые давние вытесняются
@@ -495,13 +498,17 @@ def schedule_refresh(query: str, groups: list[list[str]]) -> None:
 async def _list_store_variants(
     browser: Browser, store: Store, variants: list[str], groups: list[list[str]]
 ) -> tuple[str, list[Candidate]]:
-    """Собирает выдачу магазина по каждому написанию запроса и объединяет по URL.
+    """Собирает выдачу магазина по написаниям запроса и объединяет по URL.
+    Первое написание всегда. Следующие — только пока карточек меньше SECOND_SPELLING_IF_FEWER_THAN
+    (по умолчанию 1: то есть только если первое дало пусто или не ответило; запись 040).
     Статус: ok, если хоть одно написание дало карточки; unavailable, если магазин не ответил
     ни на одно написание (и не было ok); иначе empty."""
     statuses: list[str] = []
     found: list[Candidate] = []
     seen: set[str] = set()
-    for variant in variants:
+    for i, variant in enumerate(variants):
+        if i > 0 and len(found) >= SECOND_SPELLING_IF_FEWER_THAN:
+            break
         status, cands = await list_store(browser, store, variant, groups)
         statuses.append(status)
         for c in cands:

@@ -77,11 +77,29 @@ class ListStoreVariantsTests(unittest.TestCase):
         with patch.object(search, "list_store", side_effect=fake):
             return asyncio.run(_list_store_variants(MagicMock(), store, list(answers), []))
 
-    def test_results_of_both_spellings_are_merged_by_url(self):
-        status, found = self.run_variants({
-            "телескопик": (STATUS_OK, [_fc("a")]),
-            "telescopic": (STATUS_OK, [_fc("a"), _fc("b")]),
-        })
+    def test_ok_on_first_spelling_skips_second(self):
+        # Запись 040: второе написание только если первое пусто или не ответило
+        store = make_store("Mon Amie")
+        calls = []
+
+        async def fake(browser, st, query, groups):
+            calls.append(query)
+            return STATUS_OK, [_fc("a")]
+
+        with patch.object(search, "list_store", side_effect=fake):
+            status, found = asyncio.run(
+                _list_store_variants(MagicMock(), store, ["телескопик", "telescopic"], [])
+            )
+        self.assertEqual(calls, ["телескопик"])
+        self.assertEqual([c.url for c in found], ["a"])
+
+    def test_results_of_both_spellings_are_merged_by_url_with_higher_threshold(self):
+        # При пороге 5 второе написание запрашивается и результаты объединяются без повторов
+        with patch.object(search, "SECOND_SPELLING_IF_FEWER_THAN", 5):
+            status, found = self.run_variants({
+                "телескопик": (STATUS_OK, [_fc("a")]),
+                "telescopic": (STATUS_OK, [_fc("a"), _fc("b")]),
+            })
         self.assertEqual(status, STATUS_OK)
         self.assertEqual(sorted(c.url for c in found), ["a", "b"])
 
