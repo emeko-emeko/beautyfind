@@ -77,8 +77,24 @@ class ListStoreVariantsTests(unittest.TestCase):
         with patch.object(search, "list_store", side_effect=fake):
             return asyncio.run(_list_store_variants(MagicMock(), store, list(answers), []))
 
-    def test_ok_on_first_spelling_skips_second(self):
-        # Запись 040: второе написание только если первое пусто или не ответило
+    def test_enough_cards_on_first_spelling_skips_second(self):
+        # Запись 042: второе написание не запрашивается, если первое дало порог карточек и больше
+        store = make_store("Mon Amie")
+        calls = []
+        enough = [_fc(f"u{i}") for i in range(search.SECOND_SPELLING_IF_FEWER_THAN)]
+
+        async def fake(browser, st, query, groups):
+            calls.append(query)
+            return STATUS_OK, enough
+
+        with patch.object(search, "list_store", side_effect=fake):
+            status, found = asyncio.run(
+                _list_store_variants(MagicMock(), store, ["телескопик", "telescopic"], [])
+            )
+        self.assertEqual(calls, ["телескопик"])
+        self.assertEqual(len(found), search.SECOND_SPELLING_IF_FEWER_THAN)
+
+    def test_fewer_cards_on_first_spelling_queries_second(self):
         store = make_store("Mon Amie")
         calls = []
 
@@ -87,11 +103,8 @@ class ListStoreVariantsTests(unittest.TestCase):
             return STATUS_OK, [_fc("a")]
 
         with patch.object(search, "list_store", side_effect=fake):
-            status, found = asyncio.run(
-                _list_store_variants(MagicMock(), store, ["телескопик", "telescopic"], [])
-            )
-        self.assertEqual(calls, ["телескопик"])
-        self.assertEqual([c.url for c in found], ["a"])
+            asyncio.run(_list_store_variants(MagicMock(), store, ["телескопик", "telescopic"], []))
+        self.assertEqual(calls, ["телескопик", "telescopic"])
 
     def test_results_of_both_spellings_are_merged_by_url_with_higher_threshold(self):
         # При пороге 5 второе написание запрашивается и результаты объединяются без повторов
