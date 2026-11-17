@@ -29,7 +29,7 @@ class HandleSearchUnavailableTests(unittest.TestCase):
     def run_search(self, text: str, collect_result):
         msg = make_message(text)
         with patch.object(bot, "browser_ctx", fake_browser_ctx), \
-             patch.object(bot, "collect_all", AsyncMock(return_value=collect_result)):
+             patch.object(bot, "collect_shared", AsyncMock(return_value=collect_result)):
             asyncio.run(bot.handle_search(msg))
         # Первое сообщение — статус «Ищу по магазинам...», его не проверяем
         return [c.args[0] for c in msg.answer.await_args_list][1:]
@@ -37,7 +37,11 @@ class HandleSearchUnavailableTests(unittest.TestCase):
     def test_all_stores_unavailable_says_not_answered(self):
         names = [s.name for s in STORES]
         sent = self.run_search("крем", ([], names))
-        self.assertEqual(sent, ["⚠️ Магазины не ответили, попробуйте позже."])
+        # Запись 043: текст честнее — магазины могли не успеть к сроку
+        self.assertEqual(sent, [
+            "⚠️ Магазины не успели ответить (поиск занят или они отвечают медленно). "
+            "Попробуйте ещё раз через минуту."
+        ])
         self.assertNotIn("ничего не нашлось", " ".join(sent))
 
     def test_one_store_unavailable_shows_no_notice(self):
@@ -61,7 +65,7 @@ class NoRelevantCardsTests(unittest.TestCase):
                          list_price=1000, price_prefix="", pos=0, ratio=0.0)
         msg = make_message("le labo santal 33")
         with patch.object(bot, "browser_ctx", fake_browser_ctx), \
-             patch.object(bot, "collect_all", AsyncMock(return_value=([cand], []))):
+             patch.object(bot, "collect_shared", AsyncMock(return_value=([cand], []))):
             asyncio.run(bot.handle_search(msg))
         sent = [c.args[0] for c in msg.answer.await_args_list][1:]
         self.assertEqual(sent, ["😔 К сожалению, по вашему запросу ничего не нашлось."])
@@ -73,7 +77,7 @@ class UnknownCommandTests(unittest.TestCase):
         msg = make_message("/foo")
         collect = AsyncMock(return_value=([], []))
         with patch.object(bot, "browser_ctx", fake_browser_ctx), \
-             patch.object(bot, "collect_all", collect):
+             patch.object(bot, "collect_shared", collect):
             asyncio.run(bot.handle_search(msg))
         collect.assert_not_awaited()
         msg.answer.assert_awaited_once_with("Неизвестная команда. Список команд: /help")
@@ -121,7 +125,7 @@ class SingleItemSessionTests(unittest.TestCase):
         fetch = AsyncMock(return_value=detail)
         msg = make_message("крем")
         with patch.object(bot, "browser_ctx", counting_ctx), \
-             patch.object(bot, "collect_all", AsyncMock(return_value=([cand], []))), \
+             patch.object(bot, "collect_shared", AsyncMock(return_value=([cand], []))), \
              patch.object(bot, "fetch_detail", fetch), \
              patch.object(bot, "send_product", AsyncMock()) as send:
             asyncio.run(bot.handle_search(msg))

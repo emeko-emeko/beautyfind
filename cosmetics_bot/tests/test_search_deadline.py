@@ -145,6 +145,32 @@ class SharedTabLimitTests(unittest.TestCase):
         self.assertEqual(peak, search.SEARCH_CONCURRENCY)
 
 
+class SingleFlightTests(unittest.TestCase):
+    def test_same_query_twice_at_once_scans_stores_once(self):
+        # Запись 043: второй одинаковый запрос ждёт идущий сбор и не открывает свои вкладки
+        stores = [make_store("A"), make_store("B")]
+        calls = []
+
+        async def fake(browser, store, query, groups):
+            calls.append(store.name)
+            await asyncio.sleep(0.05)
+            # 5 карточек: второе написание не запрашивается (порог SECOND_SPELLING_IF_FEWER_THAN)
+            return STATUS_OK, [_fc(f"{store.name}-{i}") for i in range(5)]
+
+        async def main():
+            with patch.object(search, "list_store", side_effect=fake):
+                return await asyncio.gather(
+                    search.collect_shared(MagicMock(), "крем", []),
+                    search.collect_shared(MagicMock(), "крем", []),
+                )
+
+        with patch("cosmetics_bot.src.scraping.stores.STORES", stores):
+            first, second = asyncio.run(main())
+        self.assertEqual(sorted(calls), ["A", "B"])
+        self.assertEqual(sorted(c.url for c in first[0]), sorted(c.url for c in second[0]))
+        self.assertEqual(len(first[0]), 10)
+
+
 class ConstantsTests(unittest.TestCase):
     def test_budget_and_waits(self):
         self.assertEqual(search.SEARCH_DEADLINE_S, 14)

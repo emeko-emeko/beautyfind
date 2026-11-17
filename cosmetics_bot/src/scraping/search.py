@@ -591,6 +591,32 @@ async def collect_all(
     return _summarize(STORES, results)
 
 
+_inflight: dict[str, asyncio.Future] = {}
+
+
+async def collect_shared(
+    browser: Browser, query: str, groups: list[list[str]]
+) -> tuple[list[Candidate], list[str]]:
+    """Один сбор на ключ кэша (запись 043). Если такой же запрос (тот же ключ, любое написание)
+    уже идёт, второй ждёт его результат и не открывает свои вкладки, иначе он не укладывается в срок.
+    Сбор привязан к текущему event loop; shield: отмена одного ждущего не останавливает сбор для других."""
+    loop = asyncio.get_running_loop()
+    key = _cache_key(query)
+    task = _inflight.get(key)
+    if task is None or task.done() or task.get_loop() is not loop:
+        task = asyncio.ensure_future(collect_all(browser, query, groups))
+        _inflight[key] = task
+
+        def _forget(t: asyncio.Future, k: str = key) -> None:
+            if _inflight.get(k) is t:
+                del _inflight[k]
+
+        task.add_done_callback(_forget)
+    else:
+        logging.info(f"[поиск] «{query}» уже идёт, жду общий результат")
+    return await asyncio.shield(task)
+
+
 async def _finish_in_background(query: str, stores, tasks) -> None:
     """Дожидается всех магазинов и кладёт полную выдачу в кэш (если никто не ответил с ошибкой)."""
     try:

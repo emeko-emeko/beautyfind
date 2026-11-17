@@ -24,7 +24,7 @@ from cosmetics_bot.src.core.utils import (
 )
 from cosmetics_bot.src.scraping.stores import STORES, browser_ctx, find_store
 from cosmetics_bot.src.scraping.search import (
-    collect_all,
+    collect_shared,
     schedule_refresh,
     search_cache_get,
     search_cache_get_stale,
@@ -476,7 +476,7 @@ async def handle_search(message: Message):
             if cached is not None:
                 cands, unavailable = cached
             else:
-                cands, unavailable = await collect_all(browser, query, groups_q)
+                cands, unavailable = await collect_shared(browser, query, groups_q)
                 search_cache_set(query, cands, unavailable)
             plan = make_plan(groups_q, cands)
 
@@ -496,7 +496,11 @@ async def handle_search(message: Message):
         if not plan:
             if len(unavailable) == len(STORES):
                 # Ни один магазин не ответил: «ничего не нашлось» было бы неверно
-                await message.answer("⚠️ Магазины не ответили, попробуйте позже.")
+                # Запись 043: магазины могли не уложиться в срок, а не быть недоступны
+                await message.answer(
+                    "⚠️ Магазины не успели ответить (поиск занят или они отвечают медленно). "
+                    "Попробуйте ещё раз через минуту."
+                )
             else:
                 await message.answer("😔 К сожалению, по вашему запросу ничего не нашлось.")
             return
