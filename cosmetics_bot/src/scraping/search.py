@@ -27,6 +27,7 @@ from cosmetics_bot.src.core.utils import (
     search_variants,
     to_float,
 )
+from cosmetics_bot.src.core.shade import codes_in
 from cosmetics_bot.src.scraping.stores import USER_AGENT
 
 DEBUG = os.getenv("SCRAPER_DEBUG") == "1"
@@ -295,6 +296,9 @@ def _build_candidate(store: Store, raw: dict, groups, pos: int) -> Candidate:
     )
     cand.hay = make_hay(f"{brand} {cand.full_title} {type_} {label}", brand)
     cand.ratio = relevance(groups, cand.hay)
+    # Код оттенка из карточки (если сайт его пишет в названии или подписи); иначе None — неизвестно
+    card_codes = codes_in(f"{raw['name']} {label}")
+    cand.shade_codes = card_codes or None
     return cand
 
 
@@ -371,6 +375,7 @@ def _to_payload(cands: list[Candidate]) -> list[dict]:
             "reviews": c.reviews, "list_price": c.list_price, "price_prefix": c.price_prefix,
             "pos": c.pos, "ratio": c.ratio, "list_price_native": c.list_price_native,
             "restricted": c.restricted, "hay": list(c.hay),
+            "shade_codes": list(c.shade_codes) if c.shade_codes is not None else None,
         }
         for c in cands
     ]
@@ -391,6 +396,7 @@ def _from_payload(items: list[dict]) -> list[Candidate] | None:
             list_price=d["list_price"], price_prefix=d["price_prefix"], pos=d["pos"],
             ratio=d["ratio"], list_price_native=d["list_price_native"], restricted=d["restricted"],
             hay=tuple(d["hay"]),
+            shade_codes=tuple(d["shade_codes"]) if d.get("shade_codes") is not None else None,
         ))
     return out
 

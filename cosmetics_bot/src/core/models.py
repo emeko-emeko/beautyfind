@@ -48,6 +48,9 @@ class Store:
     product_page_sel: Optional[str] = None
     product_brand_sel: Optional[str] = None
     product_name_sel: Optional[str] = None
+    # Страница товара: элементы с кодами всех оттенков (проверка кода, если в выдаче его нет)
+    shade_sel: Optional[str] = None
+    shade_attr: str = ""           # атрибут с кодом; пусто — текст элемента
 
 
 @dataclass
@@ -68,6 +71,8 @@ class Candidate:
     list_price_native: Optional[float] = None  # цена в валюте магазина
     restricted: bool = False                   # доставка в КЗ невозможна
     hay: Tuple = field(default_factory=tuple, repr=False)
+    # Коды оттенков товара. None — неизвестно (нет в карточке и не проверено на странице)
+    shade_codes: Optional[Tuple[str, ...]] = None
 
     @property
     def full_title(self) -> str:

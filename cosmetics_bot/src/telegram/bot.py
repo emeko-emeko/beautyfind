@@ -22,6 +22,8 @@ from cosmetics_bot.src.core.utils import (
     has_specifics,
     MIN_RATIO
 )
+from cosmetics_bot.src.core.shade import matches_shade, split_shade
+from cosmetics_bot.src.scraping.shade_probe import probe_shades
 from cosmetics_bot.src.scraping.stores import STORES, browser_ctx, find_store
 from cosmetics_bot.src.scraping.search import (
     collect_shared,
@@ -44,6 +46,16 @@ init_db()
 dp = Dispatcher()
 
 
+def shade_none_text(plan: dict) -> str:
+    """Ответ, когда по запросу с кодом оттенка ни один проверенный товар не подошёл."""
+    text = f"😔 Оттенок {', '.join(plan['wanted'])} не найден среди проверенных товаров."
+    text += f"\nТоваров с известным кодом: {plan['checked']}."
+    if plan["unknown"]:
+        text += (f"\nБез проверки кода: {plan['unknown']} (магазин не показывает коды "
+                 "или страница не открылась).")
+    return text
+
+
 def build_groups(cands: list[Candidate]) -> list[Group]:
     d: dict[str, list[Candidate]] = {}
     for c in cands:
@@ -51,7 +63,7 @@ def build_groups(cands: list[Candidate]) -> list[Group]:
     return [Group(k, v) for k, v in d.items()]
 
 
-def make_plan(groups_q: list[list[str]], cands: list[Candidate]) -> dict | None:
+def make_plan(groups_q: list[list[str]], cands: list[Candidate], shade_codes: list[str] | None = None) -> dict | None:
     if not cands:
         return None
 
@@ -62,6 +74,18 @@ def make_plan(groups_q: list[list[str]], cands: list[Candidate]) -> dict | None:
     if not eligible:
         # Ни одна карточка не совпала с запросом: это «ничего не нашлось», а не общий запрос
         return None
+
+    if shade_codes:
+        # Запрос с кодом оттенка: показываем только товары с этим кодом. Без известного кода не совпадают.
+        checked = [c for c in eligible if c.shade_codes is not None]
+        matched = [c for c in checked if matches_shade(c.shade_codes, shade_codes)]
+        unknown = len(eligible) - len(checked)
+        logging.info(f"оттенок {shade_codes}: совпало={len(matched)}, с кодом={len(checked)}, без кода={unknown}")
+        if not matched:
+            return {"kind": "shade_none", "wanted": shade_codes, "checked": len(checked), "unknown": unknown}
+        members = sorted(matched, key=lambda c: (round(c.ratio, 3), c.pop_key()), reverse=True)
+        return {"kind": "members", "items": members, "confident": confident,
+                "wanted": shade_codes, "unknown": unknown}
 
     groups = build_groups(eligible)
     logging.info(f"групп={len(groups)}")
@@ -457,28 +481,37 @@ async def handle_search(message: Message):
         await message.answer("Неизвестная команда. Список команд: /help")
         return
 
-    groups_q, want_volume = parse_query(query)
+    # Код оттенка («помада 205») убираем из запроса: выдача магазинов общая для всех кодов,
+    # фильтр по коду применяется уже к собранным товарам
+    shade_codes, base_query = split_shade(query)
+    if not base_query.strip():
+        shade_codes, base_query = [], query  # запрос из одного кода: ищем как раньше
+
+    groups_q, want_volume = parse_query(base_query)
     if not groups_q:
         await message.answer("Введите название для поиска.")
         return
-    logging.info(f"Группы запроса: {groups_q}, объём: {want_volume}")
+    logging.info(f"Группы запроса: {groups_q}, объём: {want_volume}, оттенок: {shade_codes}")
 
     status = await message.answer("Ищу по магазинам... 🔍")
 
     try:
         async with browser_ctx() as browser:
-            cached = search_cache_get(query)
+            cached = search_cache_get(base_query)
             if cached is None:
                 # Старая, но ещё допустимая выдача: показываем сразу, обновляем в фоне
-                cached = search_cache_get_stale(query)
+                cached = search_cache_get_stale(base_query)
                 if cached is not None:
-                    schedule_refresh(query, groups_q)
+                    schedule_refresh(base_query, groups_q)
             if cached is not None:
                 cands, unavailable = cached
             else:
-                cands, unavailable = await collect_shared(browser, query, groups_q)
-                search_cache_set(query, cands, unavailable)
-            plan = make_plan(groups_q, cands)
+                cands, unavailable = await collect_shared(browser, base_query, groups_q)
+                search_cache_set(base_query, cands, unavailable)
+            if shade_codes:
+                # Коды оттенков, которых нет в карточках, берём со страниц товаров (только подходящих по названию)
+                await probe_shades(browser, [c for c in cands if c.ratio >= MIN_RATIO])
+            plan = make_plan(groups_q, cands, shade_codes or None)
 
             winner = None
             single_res = None
@@ -505,7 +538,14 @@ async def handle_search(message: Message):
                 await message.answer("😔 К сожалению, по вашему запросу ничего не нашлось.")
             return
 
+        if plan["kind"] == "shade_none":
+            await message.answer(shade_none_text(plan))
+            return
+
         warn = "" if plan["confident"] else "\n⚠️ Точного совпадения нет, показываю ближайшее."
+        if plan.get("unknown"):
+            warn += (f"\n⚠️ Код оттенка не проверен у {plan['unknown']} товаров: магазин не показывает коды "
+                     "или страница не открылась. Их в списке нет.")
 
         if plan["kind"] == "final":
             if not winner:
@@ -526,6 +566,10 @@ async def handle_search(message: Message):
                 f"и высоко оценённые варианты. Выберите нужный:{warn}"
             )
             token = new_session(message.chat.id, SESSION_TTL, mode="groups", items=items, want_volume=want_volume)
+        elif plan.get("wanted"):
+            await message.answer(
+                f"🎨 Оттенок {', '.join(plan['wanted'])}: нашлось товаров: {len(items)}. Выберите нужный:{warn}"
+            )
         else:
             await message.answer(
                 f"🔀 Нашлось несколько позиций с одинаковым названием. Выберите нужную:{warn}"

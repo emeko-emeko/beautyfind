@@ -29,6 +29,9 @@ STORES = [
         product_page_sel=".product-detail__head",
         product_brand_sel=".product-detail__head",
         product_name_sel=".product-detail__head-subtitle",
+        # Коды оттенков на странице товара: заголовок выбранного варианта и подписи картинок вариантов
+        shade_sel=".product-detail-prop--color .product-detail-prop__title span, .product-detail-prop--color label img",
+        shade_attr="alt",
     ),
     Store(
         name="Золотое Яблоко",
@@ -128,6 +131,9 @@ STORES = [
         detail_ready="#product-price",
         price_currency="€",
         fx_to_kzt=EUR_TO_KZT,
+        # Список оттенков на странице товара (скрытый список, код в data-variant-name)
+        shade_sel="#options-dropdown li[data-variant-name]",
+        shade_attr="data-variant-name",
     ),
     Store(
         name="Space NK",
