@@ -46,13 +46,21 @@ init_db()
 dp = Dispatcher()
 
 
-def shade_none_text(plan: dict) -> str:
-    """Ответ, когда по запросу с кодом оттенка ни один проверенный товар не подошёл."""
+def shade_none_text(plan: dict, unavailable: list[str] | tuple = ()) -> str:
+    """Ответ, когда по запросу с кодом оттенка ни один проверенный товар не подошёл.
+    unavailable — магазины, которые не ответили (имя «Магазин|blocked» — заблокировали запрос).
+    Без них «не найден» читалось бы как «такого оттенка нет», а магазин просто не проверен."""
     text = f"😔 Оттенок {', '.join(plan['wanted'])} не найден среди проверенных товаров."
     text += f"\nТоваров с известным кодом: {plan['checked']}."
     if plan["unknown"]:
         text += (f"\nБез проверки кода: {plan['unknown']} (магазин не показывает коды "
                  "или страница не открылась).")
+    if unavailable:
+        parts = []
+        for n in unavailable:
+            name, _, tag = n.partition("|")
+            parts.append(f"{name} (сайт заблокировал запрос)" if tag == "blocked" else name)
+        text += "\nНе проверены, магазины не ответили: " + ", ".join(parts) + "."
     return text
 
 
@@ -539,7 +547,7 @@ async def handle_search(message: Message):
             return
 
         if plan["kind"] == "shade_none":
-            await message.answer(shade_none_text(plan))
+            await message.answer(shade_none_text(plan, unavailable))
             return
 
         warn = "" if plan["confident"] else "\n⚠️ Точного совпадения нет, показываю ближайшее."

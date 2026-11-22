@@ -25,6 +25,20 @@ async def fake_browser_ctx():
     yield MagicMock()
 
 
+class ShadeNoneTextTests(unittest.TestCase):
+    """Запись 062: «не найден» должен называть магазины, которые не проверены."""
+
+    def test_names_blocked_and_unavailable_stores(self):
+        plan = {"wanted": ["205"], "checked": 23, "unknown": 8}
+        text = bot.shade_none_text(plan, ["Mon Amie|blocked", "Viled"])
+        self.assertIn("Mon Amie (сайт заблокировал запрос)", text)
+        self.assertIn("Viled", text)
+
+    def test_no_line_when_all_stores_answered(self):
+        plan = {"wanted": ["205"], "checked": 23, "unknown": 0}
+        self.assertNotIn("не ответили", bot.shade_none_text(plan, []))
+
+
 class HandleSearchUnavailableTests(unittest.TestCase):
     def run_search(self, text: str, collect_result):
         msg = make_message(text)
