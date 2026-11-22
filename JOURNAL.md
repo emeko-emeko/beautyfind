@@ -624,6 +624,16 @@
 - **Кто решил:** владелец (вариант 1).
 - **Статус:** открыто — ждёт решения владельца о деплое.
 
+### 064 — «помада 200»: после находки товара бот отвечал «Произошла ошибка при поиске»
+- **Что:** `telegram/bot.py`, `handle_search`: в ветке поиска по оттенку (`elif plan.get("wanted")`) не создавалась сессия выдачи, а `send_page(message, token)` в конце пытался её использовать. Итог: `UnboundLocalError` («cannot access local variable 'token»), поймано общим `except` и показано «Произошла ошибка при поиске». Теперь сессия создаётся в этой ветке (mode=members). Тест `ShadeFoundSessionTests` в `test_bot_search.py`.
+- **Почему:** владелец прислал скрин: «помада 200» показал «нашлось товаров: 1», затем ошибка. В логах Railway (деплой `97d9d36f`, 11:26:58–11:27:05 UTC): `Ошибка в боте: cannot access local variable 'token' where it is not associated with a value`. Ошибок Viled и Code de Vie (`Target crashed`) в том же запросе тоже видно, но они не причина сбоя: поиск их пережил.
+- **Где:** `cosmetics_bot/src/telegram/bot.py`, `cosmetics_bot/tests/test_bot_search.py`. Коммит `ce5cb50` в `feat/bot-optimizations`, пуш в origin. `main` и Railway не трогались.
+- **Проверка:** `python -m pytest cosmetics_bot/tests -q`: 138 passed, 2 skipped. Новый тест без исправления падает (`1 failed`), с исправлением проходит.
+- **Не сделано:** деплой в `main` (баг затрагивает все запросы с кодом оттенка, которые находят товар); проверка в живом боте.
+- **Откат:** `git revert ce5cb50` и пуш.
+- **Кто решил:** баг найден по скрину владельца; исправление — я. Выкат — за владельцем.
+- **Статус:** открыто — ждёт решения владельца о деплое.
+
 ### 059 — Снятие `__pycache__` с отслеживания git
 - **Что:** 16 отслеживаемых файлов `*.pyc` в `cosmetics_bot/**/__pycache__/` сняты из индекса (`git rm --cached`), коммит `dfad0db` в `feat/bot-optimizations`, пуш в origin. Файлы на диске не удалены. `.gitignore` не менялся: правило `__pycache__/` и `*.pyc` уже было.
 - **Почему:** `.pyc` менялись при каждом запуске и засоряли `git status`; владелец ответил «да».
