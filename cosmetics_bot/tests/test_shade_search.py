@@ -60,6 +60,10 @@ class CodesInTests(unittest.TestCase):
     def test_no_code_in_title_with_volume_only(self):
         self.assertEqual(codes_in("MAC Губная помада MACximal Matte Lipstick Warm teddy 3.5 г"), ())
 
+    def test_volume_with_space_after_comma_is_not_a_code(self):
+        # Yves Rocher: «... № 110. ..., 3, 5 г» — «3» не код оттенка (запись 062)
+        self.assertEqual(codes_in("ROUGE BOTANIQUE Помада № 110. Оттенок, 3, 5 г"), ("110",))
+
     def test_hex_in_text(self):
         self.assertEqual(codes_in("Оттенок #B22222"), ("#b22222",))
 

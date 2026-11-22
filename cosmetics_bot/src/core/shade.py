@@ -15,7 +15,7 @@ from cosmetics_bot.src.core.utils import norm
 CODE_RE = re.compile(r"(?:[a-zа-я]{1,2})?\d{1,4}[a-zа-я]?")
 HEX_RE = re.compile(r"#([0-9a-f]{6})\b")
 # Объём в тексте карточки («3,5 г», «30 мл»): его цифры не являются кодом
-VOLUME_IN_TEXT_RE = re.compile(r"\d+(?:[.,]\d+)?\s*(?:г|мл|g|ml)\b", re.I)
+VOLUME_IN_TEXT_RE = re.compile(r"\d+(?:[.,]\s?\d+)?\s*(?:г|мл|g|ml)\b", re.I)
 _UNIT_WORDS = {"мл", "ml", "г", "g"}
 
 
