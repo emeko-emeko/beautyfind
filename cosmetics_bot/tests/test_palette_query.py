@@ -51,9 +51,13 @@ class PaletteSelectionTests(unittest.TestCase):
         plan = make_plan(self.groups, cands)
         self.assertEqual([c.url for c in plan["items"]], ["u1"])
 
-    def test_dior_palette_ranks_above_other_brand_palette(self):
+    def test_other_brand_palette_is_dropped_when_brand_in_query(self):
+        # Запись 069: с брендом в запросе палетки других брендов не показываются
         plan = make_plan(self.groups, [self.other_palette, self.dior_palette])
-        self.assertEqual([c.url for c in plan["items"]], ["u1", "u5"])
+        self.assertEqual([c.url for c in plan["items"]], ["u1"])
+
+    def test_only_other_brand_palettes_gives_no_plan(self):
+        self.assertIsNone(make_plan(self.groups, [self.other_palette]))
 
     def test_russian_palette_card_matches_query_word(self):
         self.assertEqual(self.dior_palette_ru.ratio, 1.0)

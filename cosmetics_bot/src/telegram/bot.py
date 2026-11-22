@@ -85,6 +85,11 @@ def make_plan(groups_q: list[list[str]], cands: list[Candidate], shade_codes: li
     cat_groups = [g for g in groups_q if is_generic(g)]
     if cat_groups:
         eligible = [c for c in eligible if all(group_hit(g, c.hay) for g in cat_groups)]
+    # Бренд и прочие уточнения из запроса тоже обязательны (запись 069): «палетка диор»
+    # показывает только палетки Dior, палетки других брендов не попадают в выдачу.
+    spec_groups = [g for g in groups_q if not is_generic(g)]
+    if spec_groups:
+        eligible = [c for c in eligible if all(group_hit(g, c.hay) for g in spec_groups)]
     logging.info(f"всего={len(cands)}, после_ratio={len(eligible)}")
     if not eligible:
         # Ни одна карточка не совпала с запросом: это «ничего не нашлось», а не общий запрос
