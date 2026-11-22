@@ -39,6 +39,29 @@ class ShadeNoneTextTests(unittest.TestCase):
         self.assertNotIn("не ответили", bot.shade_none_text(plan, []))
 
 
+class ShadeFoundSessionTests(unittest.TestCase):
+    """Запись 064: «помада 200» находит товар, но бот падал на несозданной сессии (token)."""
+
+    def test_shade_result_creates_session_and_sends_page(self):
+        msg = make_message("помада 200")
+        plan = {"kind": "members", "items": [MagicMock()], "confident": True,
+                "wanted": ["200"], "unknown": 8}
+        send_page = AsyncMock()
+        with patch.object(bot, "browser_ctx", fake_browser_ctx), \
+             patch.object(bot, "collect_shared", AsyncMock(return_value=([], []))), \
+             patch.object(bot, "search_cache_get", MagicMock(return_value=None)), \
+             patch.object(bot, "search_cache_get_stale", MagicMock(return_value=None)), \
+             patch.object(bot, "search_cache_set", MagicMock()), \
+             patch.object(bot, "probe_shades", AsyncMock()), \
+             patch.object(bot, "make_plan", MagicMock(return_value=plan)), \
+             patch.object(bot, "send_page", send_page):
+            asyncio.run(bot.handle_search(msg))
+        sent = [c.args[0] for c in msg.answer.await_args_list]
+        self.assertFalse(any("ошибка при поиске" in s for s in sent), sent)
+        self.assertTrue(any("нашлось товаров: 1" in s for s in sent), sent)
+        send_page.assert_awaited_once()
+
+
 class HandleSearchUnavailableTests(unittest.TestCase):
     def run_search(self, text: str, collect_result):
         msg = make_message(text)

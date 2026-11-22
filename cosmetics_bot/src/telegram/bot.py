@@ -575,9 +575,11 @@ async def handle_search(message: Message):
             )
             token = new_session(message.chat.id, SESSION_TTL, mode="groups", items=items, want_volume=want_volume)
         elif plan.get("wanted"):
+            # Запись 064: раньше сессия здесь не создавалась, и send_page падал на token
             await message.answer(
                 f"🎨 Оттенок {', '.join(plan['wanted'])}: нашлось товаров: {len(items)}. Выберите нужный:{warn}"
             )
+            token = new_session(message.chat.id, SESSION_TTL, mode="members", items=items, want_volume=want_volume)
         else:
             await message.answer(
                 f"🔀 Нашлось несколько позиций с одинаковым названием. Выберите нужную:{warn}"
