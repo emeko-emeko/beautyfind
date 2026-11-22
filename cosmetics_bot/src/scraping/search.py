@@ -52,10 +52,14 @@ BLOCK_MARKERS = ("страница недоступна",)
 # Фразы пустой выдачи на сайтах: Viled — «товаров не найдено», Space NK — «couldn't find results»
 NOT_FOUND_MARKERS = ("ничего не найден", "товаров не найдено", "couldn't find results", "couldn’t find results")
 HEAVY_RESOURCES = {"image", "font", "media"}
+# Для магазинов, где картинки нужны (Code de Vie, Viled, коммит d2d393f): шрифты и медиа всё равно режем
+LIGHT_HEAVY_RESOURCES = {"font", "media"}
 
 STATUS_OK = "ok"                  # выдача получена (карточки могут быть пустыми)
 STATUS_EMPTY = "empty"            # магазин ответил «ничего не найдено»
 STATUS_UNAVAILABLE = "unavailable"  # таймаут, заглушка, ошибка: магазин не ответил
+STATUS_BLOCKED = "blocked"          # HTTP 403 (Cloudflare и т.п.): сайт заблокировал запрос
+BLOCKED_TAG = "blocked"             # метка в списке недоступных магазинов: «Имя|blocked»
 STATUS_PRODUCT = "product"          # сайт сразу открыл страницу одного товара, списка нет
 
 # Один вызов в браузере: читает все карточки разом.
@@ -126,6 +130,13 @@ async def _block_heavy(route):
         await route.continue_()
 
 
+async def _block_light(route):
+    if route.request.resource_type in LIGHT_HEAVY_RESOURCES:
+        await route.abort()
+    else:
+        await route.continue_()
+
+
 async def _open_context(browser: Browser, block_images: bool = True) -> BrowserContext:
     kwargs = dict(
         user_agent=USER_AGENT,
@@ -137,8 +148,7 @@ async def _open_context(browser: Browser, block_images: bool = True) -> BrowserC
     if STORAGE_STATE and os.path.exists(STORAGE_STATE):
         kwargs["storage_state"] = STORAGE_STATE
     ctx = await browser.new_context(**kwargs)
-    if block_images:
-        await ctx.route("**/*", _block_heavy)
+    await ctx.route("**/*", _block_heavy if block_images else _block_light)
     return ctx
 
 
@@ -247,7 +257,7 @@ async def _load_listing(page: Page, store: Store, url: str) -> str:
         if getattr(response, "status", None) == 403:
             # 403 — блокировка (Cloudflare): повтор тем же браузером ничего не даст, экономим 10–20 с
             logging.warning(f"[{store.name}] HTTP 403, повтор не делаем")
-            return STATUS_UNAVAILABLE
+            return STATUS_BLOCKED
         await page.wait_for_timeout(1500 * attempt)
     return STATUS_UNAVAILABLE
 
@@ -315,8 +325,8 @@ async def list_store(
         if status == STATUS_PRODUCT:
             logging.info(f"[{store.name}] сайт открыл страницу товара вместо списка")
             return STATUS_OK, [_build_candidate(store, await _product_raw(page, store), groups, 0)]
-        if status == STATUS_UNAVAILABLE:
-            logging.warning(f"[{store.name}] выдача не загрузилась")
+        if status in (STATUS_UNAVAILABLE, STATUS_BLOCKED):
+            logging.warning(f"[{store.name}] выдача не загрузилась ({status})")
             await _dump_debug(page, store)
             return status, []
         if status == STATUS_EMPTY:
@@ -522,6 +532,8 @@ async def _list_store_variants(
         return STATUS_OK, found
     if STATUS_UNAVAILABLE in statuses:
         return STATUS_UNAVAILABLE, []
+    if STATUS_BLOCKED in statuses:
+        return STATUS_BLOCKED, []
     return STATUS_EMPTY, []
 
 
@@ -543,9 +555,12 @@ def _tab_slots() -> asyncio.Semaphore:
 
 def _summarize(stores, results) -> tuple[list[Candidate], list[str]]:
     cands = [c for _, r in results for c in r]
-    unavailable = [
-        s.name for s, (status, _) in zip(stores, results) if status == STATUS_UNAVAILABLE
-    ]
+    unavailable = []
+    for s, (status, _) in zip(stores, results):
+        if status == STATUS_UNAVAILABLE:
+            unavailable.append(s.name)
+        elif status == STATUS_BLOCKED:
+            unavailable.append(f"{s.name}|{BLOCKED_TAG}")
     return cands, unavailable
 
 

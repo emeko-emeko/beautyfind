@@ -11,6 +11,7 @@ from cosmetics_bot.src.core.models import Store
 from cosmetics_bot.src.scraping import search
 from cosmetics_bot.src.scraping.search import (
     MAX_LOAD_ATTEMPTS,
+    STATUS_BLOCKED,
     STATUS_OK,
     STATUS_UNAVAILABLE,
     _load_listing,
@@ -112,7 +113,7 @@ class Forbidden403Tests(unittest.TestCase):
         page.locator = MagicMock(return_value=locator)
 
         status = asyncio.run(_load_listing(page, make_store("Золотое Яблоко"), "https://x"))
-        self.assertEqual(status, STATUS_UNAVAILABLE)
+        self.assertEqual(status, STATUS_BLOCKED)
         self.assertEqual(page.goto.await_count, 1)
         self.assertLess(1, MAX_LOAD_ATTEMPTS)  # без 403 повтор по-прежнему есть
 

@@ -27,8 +27,14 @@ def price_text(kzt: Optional[int], native: Optional[float], native_cur: str, cur
 
 
 def unavailable_line(names: list[str]) -> str:
-    """Строки о магазинах, которые не ответили. Пустой список — пустая строка."""
-    return "\n".join(f"⚠️ {html.escape(n)}: недоступен" for n in names)
+    """Строки о магазинах, которые не ответили. Пустой список — пустая строка.
+    Имя «Магазин|blocked» — сайт вернул 403 (заблокировал запрос), а не просто не ответил."""
+    lines = []
+    for n in names:
+        name, _, tag = n.partition("|")
+        reason = "сайт заблокировал запрос" if tag == "blocked" else "недоступен"
+        lines.append(f"⚠️ {html.escape(name)}: {reason}")
+    return "\n".join(lines)
 
 
 def build_caption(p: dict, confident: bool = True) -> str:

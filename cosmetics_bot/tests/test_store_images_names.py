@@ -22,6 +22,15 @@ class BlockImagesTests(unittest.TestCase):
             if s.name not in ("Code de Vie", "Viled"):
                 self.assertTrue(s.block_images, s.name)
 
+    def test_light_block_installed_for_image_stores(self):
+        ctx = MagicMock()
+        ctx.route = AsyncMock()
+        browser = MagicMock()
+        browser.new_context = AsyncMock(return_value=ctx)
+        asyncio.run(search._open_context(browser, block_images=False))
+        ctx.route.assert_awaited_once()
+        self.assertIs(ctx.route.await_args.args[1], search._block_light)
+
     def test_block_route_installed_only_when_enabled(self):
         def make_browser():
             ctx = MagicMock()
@@ -32,7 +41,7 @@ class BlockImagesTests(unittest.TestCase):
 
         browser, ctx = make_browser()
         asyncio.run(search._open_context(browser, block_images=False))
-        ctx.route.assert_not_awaited()
+        self.assertIs(ctx.route.await_args.args[1], search._block_light)
 
         browser, ctx = make_browser()
         asyncio.run(search._open_context(browser, block_images=True))
