@@ -154,7 +154,7 @@ class SingleFlightTests(unittest.TestCase):
         async def fake(browser, store, query, groups):
             calls.append(store.name)
             await asyncio.sleep(0.05)
-            # 5 карточек: второе написание не запрашивается (порог SECOND_SPELLING_IF_FEWER_THAN)
+            # 5 карточек: оба написания всё равно запускаются параллельно (EME-7, пункт 3)
             return STATUS_OK, [_fc(f"{store.name}-{i}") for i in range(5)]
 
         async def main():
@@ -166,14 +166,15 @@ class SingleFlightTests(unittest.TestCase):
 
         with patch("cosmetics_bot.src.scraping.stores.STORES", stores):
             first, second = asyncio.run(main())
-        self.assertEqual(sorted(calls), ["A", "B"])
+        # Два написания «крем» (кириллица и латиница) на каждый магазин: по одному вызову на написание
+        self.assertEqual(sorted(calls), ["A", "A", "B", "B"])
         self.assertEqual(sorted(c.url for c in first[0]), sorted(c.url for c in second[0]))
         self.assertEqual(len(first[0]), 10)
 
 
 class ConstantsTests(unittest.TestCase):
     def test_budget_and_waits(self):
-        self.assertEqual(search.SEARCH_DEADLINE_S, 20)
+        self.assertEqual(search.SEARCH_DEADLINE_S, 30)
         self.assertEqual(search.CARD_WAIT_MS, 6_000)
         self.assertEqual(search.GOTO_TIMEOUT_MS, 10_000)
 
