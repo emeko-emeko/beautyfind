@@ -500,28 +500,19 @@ def schedule_refresh(query: str, groups: list[list[str]]) -> None:
     task.add_done_callback(_refresh_tasks.discard)
 
 
-async def _one_spelling(
-    browser: Browser, store: Store, variant: str, groups: list[list[str]]
-) -> tuple[str, list[Candidate]]:
-    """Одно написание запроса в одном слоте вкладки (общий лимит SEARCH_CONCURRENCY на процесс)."""
-    async with _tab_slots():
-        return await list_store(browser, store, variant, groups)
-
-
 async def _list_store_variants(
     browser: Browser, store: Store, variants: list[str], groups: list[list[str]]
 ) -> tuple[str, list[Candidate]]:
     """Собирает выдачу магазина по написаниям запроса и объединяет по URL.
-    Все написания идут параллельно; каждое занимает свой слот вкладки (_tab_slots).
+    Все написания идут по очереди, в одном слоте вкладки магазина (слот берёт collect_all):
+    так вкладок открыто не больше SEARCH_CONCURRENCY (откат параллельного режима, EME-7).
     Статус: ok, если хоть одно написание дало карточки; unavailable, если магазин не ответил
     ни на одно написание (и не было ok); иначе empty."""
-    results = await asyncio.gather(
-        *(_one_spelling(browser, store, variant, groups) for variant in variants)
-    )
     statuses: list[str] = []
     found: list[Candidate] = []
     seen: set[str] = set()
-    for status, cands in results:
+    for variant in variants:
+        status, cands = await list_store(browser, store, variant, groups)
         statuses.append(status)
         for c in cands:
             if c.url not in seen:
@@ -572,18 +563,19 @@ async def collect_all(
     variants = search_variants(query) or [query]
 
     async def run(store: Store) -> tuple[str, list[Candidate]]:
-        # Слоты вкладок берутся на каждое написание внутри _list_store_variants (_one_spelling)
-        try:
-            return await asyncio.wait_for(
-                _list_store_variants(browser, store, variants, groups),
-                timeout=STORE_TIMEOUT,
-            )
-        except asyncio.TimeoutError:
-            logging.error(f"[{store.name}] таймаут {STORE_TIMEOUT} с")
-            return STATUS_UNAVAILABLE, []
-        except Exception as e:
-            logging.error(f"[{store.name}] ошибка: {e!r}")
-            return STATUS_UNAVAILABLE, []
+        # Общий на процесс семафор: таймаут магазина считается, только когда он уже работает
+        async with _tab_slots():
+            try:
+                return await asyncio.wait_for(
+                    _list_store_variants(browser, store, variants, groups),
+                    timeout=STORE_TIMEOUT,
+                )
+            except asyncio.TimeoutError:
+                logging.error(f"[{store.name}] таймаут {STORE_TIMEOUT} с")
+                return STATUS_UNAVAILABLE, []
+            except Exception as e:
+                logging.error(f"[{store.name}] ошибка: {e!r}")
+                return STATUS_UNAVAILABLE, []
 
     tasks = [asyncio.ensure_future(run(s)) for s in STORES]
     if deadline is None:
