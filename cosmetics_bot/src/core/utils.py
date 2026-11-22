@@ -1,5 +1,6 @@
 """Utility functions, constants, and helper logic for text processing and query parsing."""
 
+import functools
 import re
 from typing import List, Optional, Set, Tuple
 
@@ -48,6 +49,39 @@ SYNONYMS: List[List[str]] = [
     ["cerave", "церави", "сераве"],
     ["loreal", "l'oreal", "l oreal", "l'oreal paris", "лореаль", "лореаль париж", "лореаль париж"],
     ["maybelline", "maybelline new york", "мейбелин", "мэйбелин"],
+    ["nars", "нарс"],
+    ["urban decay", "урбан декей", "арбан декей", "урбан дикей"],
+    ["too faced", "ту фейсд", "ту фейст"],
+    ["fenty", "fenty beauty", "фенти", "фенти бьюти"],
+    ["huda", "huda beauty", "худа", "худа бьюти"],
+    ["kylie", "kylie cosmetics", "кайли", "кайли косметикс"],
+    ["bobbi brown", "бобби браун"],
+    ["estee lauder", "estée lauder", "эсте лаудер", "эсти лаудер"],
+    ["clinique", "клиник", "клиника"],
+    ["givenchy", "живанши", "живанси"],
+    ["guerlain", "герлен", "герлайн"],
+    ["shiseido", "сисейдо", "шисейдо"],
+    ["clarins", "кларанс", "кларэнс"],
+    ["kiehls", "kiehl s", "кихлс", "килс"],
+    ["nivea", "нивея", "нивеа"],
+    ["garnier", "гарнье", "гарньер"],
+    ["avene", "авен", "авэн"],
+    ["bioderma", "биодерма"],
+    ["eucerin", "эуцерин", "юцерин"],
+    ["caudalie", "кодали", "годали"],
+    ["lush", "лаш"],
+    ["sephora", "сефора"],
+    ["kerastase", "керастаз", "керастас"],
+    ["olaplex", "олаплекс"],
+    ["rimmel", "риммел", "римел"],
+    ["nyx", "никс"],
+    ["benefit", "бенефит"],
+    ["sisley", "сисли", "сислей"],
+    ["creed", "крид"],
+    ["jo malone", "jo malone london", "джо малон"],
+    ["byredo", "байредо"],
+    ["bourjois", "буржуа"],
+    ["catrice", "катрис", "катрайс"],
 ]
 
 CATEGORY_WORDS_RAW = """
@@ -56,10 +90,11 @@ CATEGORY_WORDS_RAW = """
 шампунь кондиционер бальзам масло спрей мусс мыло дезодорант антиперспирант
 помада блеск тени пудра румяна тональный основа консилер праймер хайлайтер контур
 подводка карандаш лак лаки набор наборы подарочный средство уход для лица тела волос рук губ глаз
+палетка палетки палеток палитра палитры
 edp edt edc
 mascara cream serum mask gel scrub foam toner lotion shampoo conditioner balm oil spray mousse soap
 deodorant lipstick gloss shadow powder blush foundation concealer primer highlighter eyeliner pencil
-perfume parfum eau de toilette set kit
+perfume parfum eau de toilette set kit palette palettes eyeshadow
 """
 
 STOP_WORDS: Set[str] = {"для", "и", "the", "for", "and", "by", "of"}
@@ -169,11 +204,7 @@ def parse_query(query: str) -> Tuple[List[List[str]], Optional[float]]:
     for tok in q.split():
         if tok in STOP_WORDS:
             continue
-        alts = []
-        for a in (tok, translit(tok), phon(tok)):
-            if a and a not in alts:
-                alts.append(a)
-        groups.append(alts)
+        groups.append(token_alts(tok))
 
     return groups, want_volume
 
@@ -190,13 +221,40 @@ TERM_PAIRS: List[Tuple[str, str]] = [
     ("помада", "lipstick"),
     ("духи", "perfume"),
     ("шампунь", "shampoo"),
+    ("палетка", "palette"),
+    ("палетки", "palettes"),
+    ("палеток", "palettes"),
+    ("палитра", "palette"),
+    ("тени", "eyeshadow"),
+    ("пудра", "powder"),
+    ("румяна", "blush"),
+    ("блеск", "gloss"),
+    ("пенка", "foam"),
+    ("гель", "gel"),
+    ("скраб", "scrub"),
+    ("бальзам", "balm"),
+    ("кондиционер", "conditioner"),
+    ("дезодорант", "deodorant"),
+    ("подводка", "eyeliner"),
+    ("мак", "mac"),
 ]
+
+# Латиница, написанная по транслиту русского слова («paletka» вместо «palette»).
+# Магазины ищут по английскому названию, поэтому такой запрос приводим к нему.
+LATIN_TRANSLIT_ALIASES: dict = {
+    "paletka": "palette", "paletki": "palettes", "paletok": "palettes", "palitra": "palette",
+    "pomada": "lipstick", "tush": "mascara", "krem": "cream", "syvorotka": "serum",
+    "syvorotka": "serum", "maska": "mask", "shampun": "shampoo", "teni": "eyeshadow",
+    "pudra": "powder", "rumyana": "blush", "blesk": "gloss", "penka": "foam",
+    "skrab": "scrub", "balzam": "balm", "dezodorant": "deodorant", "podvodka": "eyeliner",
+}
 
 
 def _is_cyr(s: str) -> bool:
     return re.search(r"[а-я]", s) is not None
 
 
+@functools.lru_cache(maxsize=None)
 def _ru_en_maps() -> Tuple[dict, dict]:
     """Однословные соответствия: кириллица → латиница и обратно (из TERM_PAIRS и SYNONYMS)."""
     ru_en: dict = {}
@@ -228,8 +286,25 @@ def search_variants(query: str) -> List[str]:
     if _is_cyr(base):
         other = " ".join(ru_en.get(t, translit(t) if _is_cyr(t) else t) for t in base.split())
     else:
+        # «paletka» (транслит «палетка») → «palette»: магазины ищут по английскому названию
+        base = " ".join(LATIN_TRANSLIT_ALIASES.get(t, t) for t in base.split())
         other = " ".join(en_ru.get(t, t) for t in base.split())
     return [base] if other == base else [base, other]
+
+
+def token_alts(tok: str) -> List[str]:
+    """Написания одного слова запроса для сравнения с карточкой: как есть, транслит,
+    фонетика и словарная пара (палетка ↔ palette, paletka → palette). Без повторов."""
+    ru_en, en_ru = _ru_en_maps()
+    if _is_cyr(tok):
+        extra = [ru_en.get(tok)]
+    else:
+        extra = [LATIN_TRANSLIT_ALIASES.get(tok), en_ru.get(tok)]
+    out: List[str] = []
+    for a in [tok, translit(tok), phon(tok), *extra]:
+        if a and a not in out:
+            out.append(a)
+    return out
 
 
 def relevance(groups: List[List[str]], hay: Tuple[str, str, str, str]) -> float:

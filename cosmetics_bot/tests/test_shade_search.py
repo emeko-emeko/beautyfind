@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from cosmetics_bot.src.core.models import Candidate
 from cosmetics_bot.src.core.shade import codes_in, matches_shade, split_shade
+from cosmetics_bot.src.core.utils import make_hay
 from cosmetics_bot.src.scraping import search
 from cosmetics_bot.src.scraping import shade_probe
 from cosmetics_bot.src.scraping.stores import STORES
@@ -23,6 +24,7 @@ def _cand(codes, ratio=1.0, store=None, url="https://x.test/p", name="Помад
     )
     c.ratio = ratio
     c.shade_codes = codes
+    c.hay = make_hay(name)
     return c
 
 

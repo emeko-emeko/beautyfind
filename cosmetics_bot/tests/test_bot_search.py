@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from cosmetics_bot.src.telegram import bot
 from cosmetics_bot.src.scraping.stores import STORES
+from cosmetics_bot.src.core.utils import make_hay
 from cosmetics_bot.src.ui.formatter import unavailable_line
 
 
@@ -147,9 +148,10 @@ class SingleItemSessionTests(unittest.TestCase):
         # Кэш выдачи общий для процесса: без очистки запрос «крем» взял бы результат прошлых тестов
         search_mod._search_cache.clear()
 
-        cand = Candidate(store=STORES[0], brand="Vichy", name="Dercos", type_="", label="",
+        cand = Candidate(store=STORES[0], brand="Vichy", name="Крем Dercos", type_="", label="",
                          url="https://example.test/p/1", image="", rating=None, reviews=0,
                          list_price=1000, price_prefix="", pos=0, ratio=1.0)
+        cand.hay = make_hay("Vichy Крем Dercos", "Vichy")
         entered = {"n": 0}
 
         @contextlib.asynccontextmanager

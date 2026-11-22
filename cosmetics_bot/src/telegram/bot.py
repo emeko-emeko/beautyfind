@@ -20,6 +20,8 @@ from cosmetics_bot.src.core.utils import (
     RATIO_TOLERANCE,
     parse_query,
     has_specifics,
+    is_generic,
+    group_hit,
     MIN_RATIO
 )
 from cosmetics_bot.src.core.shade import matches_shade, split_shade
@@ -78,6 +80,11 @@ def make_plan(groups_q: list[list[str]], cands: list[Candidate], shade_codes: li
     max_ratio = max(c.ratio for c in cands)
     confident = max_ratio >= 0.5
     eligible = [c for c in cands if c.ratio >= MIN_RATIO]
+    # Категория (палетка, тушь, помада…) обязательна: карточка, которая совпала только по бренду
+    # («Dior Addict Lip Maximizer» на запрос «палетка диор»), в выдачу не попадает.
+    cat_groups = [g for g in groups_q if is_generic(g)]
+    if cat_groups:
+        eligible = [c for c in eligible if all(group_hit(g, c.hay) for g in cat_groups)]
     logging.info(f"всего={len(cands)}, после_ratio={len(eligible)}")
     if not eligible:
         # Ни одна карточка не совпала с запросом: это «ничего не нашлось», а не общий запрос
